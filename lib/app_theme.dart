@@ -22,6 +22,7 @@ class AppTheme {
     colorSchemeSeed: Colors.indigo,
   );
 
+  
   // Öffentlicher Getter für das dunkle Theme
   static ThemeData get darkTheme => ThemeData(
     useMaterial3: true,
