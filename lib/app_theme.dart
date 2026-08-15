@@ -6,7 +6,7 @@ class AppTheme {
     backgroundColor: Colors.indigo,
     foregroundColor: Colors.white,
     elevation: 2,
-    centerTitle: true,
+    centerTitle: false,
     titleTextStyle: TextStyle(
       fontSize: 20,
       fontWeight: FontWeight.bold,
