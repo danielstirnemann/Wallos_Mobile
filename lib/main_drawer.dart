@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'settings_page.dart';
 
 class MainDrawer extends StatelessWidget {
   const MainDrawer({super.key});
@@ -29,7 +30,13 @@ class MainDrawer extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.settings),
             title: const Text('Einstellungen'),
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsPage()),
+              );
+            },
           ),
         ],
       ),
