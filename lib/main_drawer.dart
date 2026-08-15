@@ -17,8 +17,13 @@ class MainDrawer extends StatelessWidget {
             ),
           ),
           ListTile(
+            leading: const Icon(Icons.person),
+            title: const Text('Profil'),
+            onTap: () => Navigator.pop(context),
+          ),
+          ListTile(
             leading: const Icon(Icons.account_balance_wallet),
-            title: const Text('Abos'),
+            title: const Text('Abonnemente'),
             onTap: () => Navigator.pop(context),
           ),
           ListTile(
