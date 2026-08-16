@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'settings_page.dart';
+import 'subscription_page.dart';
 
 class MainDrawer extends StatelessWidget {
   const MainDrawer({super.key});
@@ -25,8 +26,16 @@ class MainDrawer extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.account_balance_wallet),
             title: const Text('Abonnemente'),
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => SubscriptionPage()),
+              );
+            },
           ),
+
           ListTile(
             leading: const Icon(Icons.settings),
             title: const Text('Einstellungen'),
@@ -34,7 +43,7 @@ class MainDrawer extends StatelessWidget {
               Navigator.pop(context);
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const SettingsPage()),
+                MaterialPageRoute(builder: (context) => SettingsPage()),
               );
             },
           ),
