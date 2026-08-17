@@ -1,33 +1,32 @@
 import 'package:flutter/material.dart';
-import 'models/subscription.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart'; // 1. Import
+import 'providers/subscription_provider.dart';
 
-class SubscriptionPage extends StatefulWidget {
+// ConsumerWidget statt StatefulWidget nutzen
+class SubscriptionPage extends ConsumerWidget {
   const SubscriptionPage({super.key});
 
   @override
-  State<SubscriptionPage> createState() => _SubscriptionPageState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    // 2. Den Provider beobachten
+    final subAsync = ref.watch(subscriptionProvider);
 
-class _SubscriptionPageState extends State<SubscriptionPage> {
-
-  final List<Subscription> subscriptions = [
-    Subscription(name: 'Netflix', price: 17.99, icon: Icons.movie),
-    Subscription(name: 'Spotify', price: 10.99, icon: Icons.music_note),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Abonnemente')),
-      body: ListView.builder(
+      // 3. Den Zustand (Laden, Daten, Fehler) behandeln
+      body: subAsync.when(
+        data: (subscriptions) => ListView.builder(
           itemCount: subscriptions.length,
-          itemBuilder: (context, index){
+          itemBuilder: (context, index) {
             final item = subscriptions[index];
             return ListTile(
-              title:Text(item.name),
+              title: Text(item.name),
               trailing: Text('${item.price} CHF'),
             );
           },
+        ),
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => Center(child: Text('Fehler: $err')),
       ),
     );
   }
