@@ -1,17 +1,59 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/subscription.dart';
-import '../services/api_service.dart';
 
-// Dieser Provider stellt die Liste der Abos bereit
 final subscriptionProvider = FutureProvider<List<Subscription>>((ref) async {
-  // Später rufen wir hier den ApiService auf:
-  // return ref.read(apiServiceProvider).fetchSubscriptions();
+  final prefs = await SharedPreferences.getInstance();
+  var url = (prefs.getString('wallos_api_url') ?? '').trim();
+  final token = (prefs.getString('wallos_api_token') ?? '').trim();
 
-  // Erstmal simulieren wir eine Verzögerung und geben Testdaten zurück:
-  await Future.delayed(const Duration(seconds: 2));
-  return [
-    Subscription(name: 'Netflix', price: 17.99, icon: Icons.movie),
-    Subscription(name: 'Spotify', price: 10.99, icon: Icons.music_note),
-  ];
+  if (url.isEmpty || token.isEmpty) {
+    throw Exception('Bitte API-URL und Token in den Einstellungen hinterlegen.');
+  }
+
+  // URL säubern (kein / am Ende der Basis-URL)
+  if (url.endsWith('/')) {
+    url = url.substring(0, url.length - 1);
+  }
+
+  // Korrekter Wallos-Endpunkt: Der API-Key wird als 'api_key' Query-Parameter erwartet
+  final apiUrl = '$url/api/subscriptions/get_subscriptions.php?api_key=$token';
+
+  print('--- API DEBUG ---');
+  print('Rufe auf: $apiUrl');
+
+  try {
+    final response = await http.get(
+      Uri.parse(apiUrl),
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'WallosMobileApp/1.0',
+      },
+    );
+
+    print('Status Code: ${response.statusCode}');
+    print('Antwort vom Server: ${response.body}');
+
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> data = json.decode(response.body);
+
+      if (data['success'] != true) {
+        throw Exception('Wallos-Fehler: ${data['title'] ?? 'Unbekannter Fehler'}');
+      }
+
+      final List<dynamic> subscriptions = data['subscriptions'] ?? [];
+      return subscriptions
+          .map((json) => Subscription.fromJson(json, baseUrl: url))
+          .toList();
+    } else {
+      // Wenn der Fehler 403 ist, steht im Body oft der Grund
+      throw Exception('Fehler ${response.statusCode}: ${response.body}');
+    }
+  } catch (e) {
+    print('Netzwerk-Fehler: $e');
+    throw Exception('Verbindung fehlgeschlagen: $e');
+  }
 });
