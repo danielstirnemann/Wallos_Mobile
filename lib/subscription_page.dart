@@ -23,15 +23,24 @@ class SubscriptionPage extends ConsumerWidget {
             itemBuilder: (context, index) {
               final item = subscriptions[index];
               return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.grey[200],
-                  foregroundImage: item.logoUrl != null
-                      ? NetworkImage(item.logoUrl!)
-                      : null,
-                  onForegroundImageError: item.logoUrl != null
-                      ? (exception, stackTrace) {}
-                      : null,
-                  child: Icon(item.icon, color: Colors.grey[700]),
+                leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    color: Colors.transparent,
+                    padding: const EdgeInsets.all(4),
+                    child: item.logoUrl != null
+                        ? Image.network(
+                            item.logoUrl!,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) => Icon(
+                              item.icon,
+                              color: Colors.grey[700],
+                            ),
+                          )
+                        : Icon(item.icon, color: Colors.grey[700]),
+                  ),
                 ),
                 title: Text(item.name),
                 trailing: Text('${item.price} CHF'),
