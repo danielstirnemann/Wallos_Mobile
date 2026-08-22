@@ -12,7 +12,7 @@ class SubscriptionPage extends ConsumerWidget {
   void _showAddDialog(BuildContext context, WidgetRef ref, String baseUrl, String apiKey) {
     showDialog(
       context: context,
-      builder: (context) => SubscriptionFormDialog(
+      builder: (dialogContext) => SubscriptionFormDialog(
         onSave: (data) async {
           try {
             final result = await SubscriptionCrudProvider.addSubscription(
@@ -25,20 +25,28 @@ class SubscriptionPage extends ConsumerWidget {
               cycle: data['cycle'],
               frequency: data['frequency'],
               nextPayment: data['next_payment'],
-              categoryId: data['category_id']?.toString(),
-              paymentMethodId: data['payment_method_id']?.toString(),
+              categoryId: data['category_id'],
+              paymentMethodId: data['payment_method_id'],
             );
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+            print('API-Antwort: ${result['success']} - ${result['message']}');
+            if (dialogContext.mounted) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
                 SnackBar(content: Text(result['message'])),
               );
               if (result['success']) {
-                ref.refresh(subscriptionProvider);
+                print('Abo erfolgreich hinzugefügt, schließe Dialog...');
+                // Schließe den Dialog
+                Navigator.of(dialogContext).pop();
+                // Warte und aktualisiere die Liste
+                await Future.delayed(const Duration(seconds: 1));
+                print('Invalidiere subscriptionProvider...');
+                ref.invalidate(subscriptionProvider);
               }
             }
           } catch (e) {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+            print('Fehler beim Hinzufügen: $e');
+            if (dialogContext.mounted) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
                 SnackBar(content: Text('Fehler: $e')),
               );
             }
@@ -63,8 +71,8 @@ class SubscriptionPage extends ConsumerWidget {
             title: const Text('Abonnemente'),
             actions: [
               IconButton(
-                icon: const Icon(Icons.add),
-                onPressed: () => _showAddDialog(context, ref, baseUrl, apiKey),
+                icon: const Icon(Icons.refresh),
+                onPressed: () => ref.refresh(subscriptionProvider),
               ),
             ],
           ),
@@ -75,7 +83,7 @@ class SubscriptionPage extends ConsumerWidget {
                 subscriptions: subscriptions,
                 baseUrl: baseUrl,
                 apiKey: apiKey,
-                onRefresh: () => ref.refresh(subscriptionProvider.future),
+                onRefresh: () async => ref.refresh(subscriptionProvider.future),
               ),
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (err, stack) => ListView(
@@ -88,6 +96,10 @@ class SubscriptionPage extends ConsumerWidget {
                 ],
               ),
             ),
+          ),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () => _showAddDialog(context, ref, baseUrl, apiKey),
+            child: const Icon(Icons.add),
           ),
         );
       },

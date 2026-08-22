@@ -22,7 +22,7 @@ class SubscriptionList extends ConsumerWidget {
   void _showEditDialog(BuildContext context, WidgetRef ref, Subscription subscription) {
     showDialog(
       context: context,
-      builder: (context) => SubscriptionFormDialog(
+      builder: (dialogContext) => SubscriptionFormDialog(
         subscription: subscription,
         onSave: (data) async {
           try {
@@ -36,20 +36,22 @@ class SubscriptionList extends ConsumerWidget {
               cycle: data['cycle'],
               frequency: data['frequency'],
               nextPayment: data['next_payment'],
-              categoryId: data['category_id']?.toString(),
-              paymentMethodId: data['payment_method_id']?.toString(),
+              categoryId: data['category_id'] as int?,
+              paymentMethodId: data['payment_method_id'] as int?,
             );
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+            if (dialogContext.mounted) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
                 SnackBar(content: Text(result['message'])),
               );
               if (result['success']) {
-                ref.refresh(subscriptionProvider);
+                Navigator.of(dialogContext).pop();
+                await Future.delayed(const Duration(milliseconds: 500));
+                ref.invalidate(subscriptionProvider);
               }
             }
           } catch (e) {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+            if (dialogContext.mounted) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
                 SnackBar(content: Text('Fehler: $e')),
               );
             }
@@ -84,7 +86,8 @@ class SubscriptionList extends ConsumerWidget {
                     SnackBar(content: Text(result['message'])),
                   );
                   if (result['success']) {
-                    ref.refresh(subscriptionProvider);
+                    await Future.delayed(const Duration(milliseconds: 500));
+                    ref.invalidate(subscriptionProvider);
                   }
                 }
               } catch (e) {
@@ -132,15 +135,22 @@ class SubscriptionList extends ConsumerWidget {
           ),
           title: Text(item.name),
           subtitle: Text('${item.price} CHF'),
-          trailing: PopupMenuButton(
+          trailing: PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'edit') {
+                _showEditDialog(context, ref, item);
+              } else if (value == 'delete') {
+                _showDeleteDialog(context, ref, item);
+              }
+            },
             itemBuilder: (context) => [
-              PopupMenuItem(
-                child: const Text('Bearbeiten'),
-                onTap: () => _showEditDialog(context, ref, item),
+              const PopupMenuItem(
+                value: 'edit',
+                child: Text('Bearbeiten'),
               ),
-              PopupMenuItem(
-                child: const Text('Löschen', style: TextStyle(color: Colors.red)),
-                onTap: () => _showDeleteDialog(context, ref, item),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Text('Löschen', style: TextStyle(color: Colors.red)),
               ),
             ],
           ),

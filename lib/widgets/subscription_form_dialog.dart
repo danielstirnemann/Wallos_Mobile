@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/subscription.dart';
+import '../providers/meta_provider.dart';
 
-class SubscriptionFormDialog extends StatefulWidget {
+class SubscriptionFormDialog extends ConsumerStatefulWidget {
   final Subscription? subscription;
   final Function(Map<String, dynamic>) onSave;
 
@@ -12,32 +14,31 @@ class SubscriptionFormDialog extends StatefulWidget {
   });
 
   @override
-  State<SubscriptionFormDialog> createState() => _SubscriptionFormDialogState();
+  ConsumerState<SubscriptionFormDialog> createState() => _SubscriptionFormDialogState();
 }
 
-class _SubscriptionFormDialogState extends State<SubscriptionFormDialog> {
+class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog> {
   late TextEditingController _nameController;
   late TextEditingController _priceController;
   late TextEditingController _nextPaymentController;
 
-  late int _selectedCurrency;
-  late int _selectedCategory;
-  late int _selectedPaymentMethod;
+  int? _selectedCurrency;
+  int? _selectedCategory;
+  int? _selectedPaymentMethod;
   late int _selectedCycle;
   late int _selectedFrequency;
 
   @override
   void initState() {
     super.initState();
-    _selectedCurrency = 12;
-    _selectedCategory = 2;
-    _selectedPaymentMethod = 1;
-    _selectedCycle = 3;
+    _selectedCycle = 1; // 1 = Monatlich
     _selectedFrequency = 1;
     
     _nameController = TextEditingController(text: widget.subscription?.name ?? '');
     _priceController = TextEditingController(text: widget.subscription?.price.toString() ?? '');
-    _nextPaymentController = TextEditingController();
+    _nextPaymentController = TextEditingController(
+      text: DateTime.now().toString().split(' ')[0]
+    );
   }
 
   @override
@@ -52,11 +53,13 @@ class _SubscriptionFormDialogState extends State<SubscriptionFormDialog> {
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
-      firstDate: DateTime.now(),
+      firstDate: DateTime(2000),
       lastDate: DateTime(2100),
     );
     if (picked != null) {
-      _nextPaymentController.text = picked.toString().split(' ')[0];
+      setState(() {
+        _nextPaymentController.text = picked.toString().split(' ')[0];
+      });
     }
   }
 
@@ -64,6 +67,13 @@ class _SubscriptionFormDialogState extends State<SubscriptionFormDialog> {
     if (_nameController.text.isEmpty || _priceController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bitte Name und Preis ausfüllen')),
+      );
+      return;
+    }
+
+    if (_selectedCurrency == null || _selectedCategory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bitte Währung und Kategorie wählen')),
       );
       return;
     }
@@ -77,9 +87,7 @@ class _SubscriptionFormDialogState extends State<SubscriptionFormDialog> {
       'payment_method_id': _selectedPaymentMethod,
       'cycle': _selectedCycle,
       'frequency': _selectedFrequency,
-      'next_payment': _nextPaymentController.text.isEmpty
-          ? DateTime.now().toString().split(' ')[0]
-          : _nextPaymentController.text,
+      'next_payment': _nextPaymentController.text,
     });
 
     Navigator.pop(context);
@@ -87,60 +95,119 @@ class _SubscriptionFormDialogState extends State<SubscriptionFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final metaAsync = ref.watch(metaDataProvider);
+
     return AlertDialog(
       title: Text(widget.subscription == null ? 'Abo hinzufügen' : 'Abo bearbeiten'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _priceController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Preis',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _nextPaymentController,
-              readOnly: true,
-              decoration: InputDecoration(
-                labelText: 'Nächste Zahlung',
-                border: const OutlineInputBorder(),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.calendar_today),
-                  onPressed: _selectDate,
+      content: metaAsync.when(
+        data: (meta) {
+          // Setze Standardwerte, falls noch nichts ausgewählt ist
+          if (_selectedCurrency == null && meta.currencies.isNotEmpty) {
+            _selectedCurrency = meta.currencies.first.id;
+          }
+          if (_selectedCategory == null && meta.categories.isNotEmpty) {
+            _selectedCategory = meta.categories.first.id;
+          }
+          if (_selectedPaymentMethod == null && meta.paymentMethods.isNotEmpty) {
+            _selectedPaymentMethod = meta.paymentMethods.first.id;
+          }
+
+          return SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Name',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _priceController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Preis',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  value: _selectedCurrency,
+                  decoration: const InputDecoration(
+                    labelText: 'Währung',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: meta.currencies.map((c) => DropdownMenuItem(
+                    value: c.id,
+                    child: Text('${c.name} (${c.symbol})'),
+                  )).toList(),
+                  onChanged: (value) => setState(() => _selectedCurrency = value),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  value: _selectedCategory,
+                  decoration: const InputDecoration(
+                    labelText: 'Kategorie',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: meta.categories.map((c) => DropdownMenuItem(
+                    value: c.id,
+                    child: Text(c.name),
+                  )).toList(),
+                  onChanged: (value) => setState(() => _selectedCategory = value),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  value: _selectedPaymentMethod,
+                  decoration: const InputDecoration(
+                    labelText: 'Zahlungsmethode',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: meta.paymentMethods.map((pm) => DropdownMenuItem(
+                    value: pm.id,
+                    child: Text(pm.name),
+                  )).toList(),
+                  onChanged: (value) => setState(() => _selectedPaymentMethod = value),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  value: _selectedCycle,
+                  decoration: const InputDecoration(
+                    labelText: 'Zyklus',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text('Monatlich')),
+                    DropdownMenuItem(value: 3, child: Text('Vierteljährlich')),
+                    DropdownMenuItem(value: 4, child: Text('Halbjährlich')),
+                    DropdownMenuItem(value: 5, child: Text('Jährlich')),
+                  ],
+                  onChanged: (value) => setState(() => _selectedCycle = value ?? 1),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _nextPaymentController,
+                  readOnly: true,
+                  decoration: InputDecoration(
+                    labelText: 'Nächste Zahlung',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.calendar_today),
+                      onPressed: _selectDate,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
-              initialValue: _selectedCycle,
-              decoration: const InputDecoration(
-                labelText: 'Zyklus',
-                border: OutlineInputBorder(),
-              ),
-              items: [1, 3, 6, 12].map((int value) {
-                return DropdownMenuItem<int>(
-                  value: value,
-                  child: Text(value.toString()),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() => _selectedCycle = value ?? 3);
-              },
-            ),
-          ],
+          );
+        },
+        loading: () => const SizedBox(
+          height: 200,
+          child: Center(child: CircularProgressIndicator()),
         ),
+        error: (err, stack) => Text('Fehler beim Laden der Wallos-Daten: $err'),
       ),
       actions: [
         TextButton(
@@ -155,3 +222,4 @@ class _SubscriptionFormDialogState extends State<SubscriptionFormDialog> {
     );
   }
 }
+
