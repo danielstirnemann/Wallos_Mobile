@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,11 +18,7 @@ final subscriptionProvider = FutureProvider<List<Subscription>>((ref) async {
     url = url.substring(0, url.length - 1);
   }
 
-  // Korrekter Wallos-Endpunkt: Der API-Key wird als 'api_key' Query-Parameter erwartet
   final apiUrl = '$url/api/subscriptions/get_subscriptions.php?api_key=$token';
-
-  print('--- API DEBUG ---');
-  print('Rufe auf: $apiUrl');
 
   try {
     final response = await http.get(
@@ -33,9 +28,6 @@ final subscriptionProvider = FutureProvider<List<Subscription>>((ref) async {
         'User-Agent': 'WallosMobileApp/1.0',
       },
     );
-
-    print('Status Code: ${response.statusCode}');
-    print('Antwort vom Server: ${response.body}');
 
     if (response.statusCode == 200) {
       final Map<String, dynamic> data = json.decode(response.body);
@@ -49,11 +41,9 @@ final subscriptionProvider = FutureProvider<List<Subscription>>((ref) async {
           .map((json) => Subscription.fromJson(json, baseUrl: url))
           .toList();
     } else {
-      // Wenn der Fehler 403 ist, steht im Body oft der Grund
       throw Exception('Fehler ${response.statusCode}: ${response.body}');
     }
   } catch (e) {
-    print('Netzwerk-Fehler: $e');
     throw Exception('Verbindung fehlgeschlagen: $e');
   }
 });
