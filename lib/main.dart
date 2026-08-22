@@ -11,7 +11,6 @@ void main () {
   );
 }
 
-
 class WallosApp extends StatelessWidget {
   const WallosApp({super.key});
   @override
