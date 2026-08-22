@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 class Subscription {
+  final int id;
   final String name;
   final double price;
   final IconData icon;
   final String? logoUrl;
 
   Subscription({
+    required this.id,
     required this.name,
     required this.price,
     required this.icon,
@@ -21,9 +23,10 @@ class Subscription {
     }
 
     return Subscription(
+      id: json['id'] ?? 0,
       name: json['name'] ?? 'Unbekannt',
-      price: (json['price'] as num).toDouble(), // Sicherstellen, dass es ein Double ist
-      icon: Icons.account_balance_wallet, // Fallback, falls kein Logo vorhanden ist
+      price: (json['price'] as num).toDouble(),
+      icon: Icons.account_balance_wallet,
       logoUrl: logoUrl,
     );
   }
