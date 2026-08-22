@@ -39,19 +39,31 @@ class SubscriptionList extends ConsumerWidget {
               categoryId: data['category_id'] as int?,
               paymentMethodId: data['payment_method_id'] as int?,
             );
+            
+            // Dialog schließen ZUERST
             if (dialogContext.mounted) {
-              ScaffoldMessenger.of(dialogContext).showSnackBar(
+              Navigator.of(dialogContext).pop();
+            }
+            
+            // Dann SnackBar
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).clearSnackBars();
+              ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(result['message'])),
               );
-              if (result['success']) {
-                Navigator.of(dialogContext).pop();
-                await Future.delayed(const Duration(milliseconds: 500));
-                ref.invalidate(subscriptionProvider);
-              }
+            }
+            
+            // Dann Refresh
+            if (result['success']) {
+              ref.refresh(subscriptionProvider);
             }
           } catch (e) {
             if (dialogContext.mounted) {
-              ScaffoldMessenger.of(dialogContext).showSnackBar(
+              Navigator.of(dialogContext).pop();
+            }
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).clearSnackBars();
+              ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('Fehler: $e')),
               );
             }
@@ -64,17 +76,17 @@ class SubscriptionList extends ConsumerWidget {
   void _showDeleteDialog(BuildContext context, WidgetRef ref, Subscription subscription) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Bestätigung'),
         content: Text('Möchtest du "${subscription.name}" wirklich löschen?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Abbrechen'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               try {
                 final result = await SubscriptionCrudProvider.deleteSubscription(
                   baseUrl: baseUrl,
@@ -82,16 +94,18 @@ class SubscriptionList extends ConsumerWidget {
                   id: subscription.id,
                 );
                 if (context.mounted) {
+                  ScaffoldMessenger.of(context).clearSnackBars();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text(result['message'])),
                   );
                   if (result['success']) {
-                    await Future.delayed(const Duration(milliseconds: 500));
-                    ref.invalidate(subscriptionProvider);
+                    print('Abo gelöscht - starte Refresh...');
+                    ref.refresh(subscriptionProvider);
                   }
                 }
               } catch (e) {
                 if (context.mounted) {
+                  ScaffoldMessenger.of(context).clearSnackBars();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Fehler: $e')),
                   );

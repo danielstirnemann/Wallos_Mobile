@@ -29,24 +29,34 @@ class SubscriptionPage extends ConsumerWidget {
               paymentMethodId: data['payment_method_id'],
             );
             print('API-Antwort: ${result['success']} - ${result['message']}');
+            
+            // Schließe Dialog ZUERST
             if (dialogContext.mounted) {
-              ScaffoldMessenger.of(dialogContext).showSnackBar(
+              Navigator.of(dialogContext).pop();
+            }
+            
+            // Dann SnackBar zeigen
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).clearSnackBars();
+              ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(result['message'])),
               );
-              if (result['success']) {
-                print('Abo erfolgreich hinzugefügt, schließe Dialog...');
-                // Schließe den Dialog
-                Navigator.of(dialogContext).pop();
-                // Warte und aktualisiere die Liste
-                await Future.delayed(const Duration(seconds: 1));
-                print('Invalidiere subscriptionProvider...');
-                ref.invalidate(subscriptionProvider);
-              }
+            }
+            
+            // DANN Refresh machen
+            if (result['success']) {
+              print('Abo erfolgreich hinzugefügt - starte Refresh...');
+              // Refresh den Provider SOFORT
+              ref.refresh(subscriptionProvider);
             }
           } catch (e) {
             print('Fehler beim Hinzufügen: $e');
             if (dialogContext.mounted) {
-              ScaffoldMessenger.of(dialogContext).showSnackBar(
+              Navigator.of(dialogContext).pop();
+            }
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).clearSnackBars();
+              ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('Fehler: $e')),
               );
             }
@@ -65,6 +75,9 @@ class SubscriptionPage extends ConsumerWidget {
       builder: (context, prefs) {
         final baseUrl = (prefs.data?.getString('wallos_api_url') ?? '').trim();
         final apiKey = (prefs.data?.getString('wallos_api_token') ?? '').trim();
+        
+        print('[SubscriptionPage] baseUrl: $baseUrl');
+        print('[SubscriptionPage] apiKey: ${apiKey.isEmpty ? "LEER" : "${apiKey.substring(0, 10)}..."}');
 
         return Scaffold(
           appBar: AppBar(
@@ -77,13 +90,19 @@ class SubscriptionPage extends ConsumerWidget {
             ],
           ),
           body: RefreshIndicator(
-            onRefresh: () => ref.refresh(subscriptionProvider.future),
+            onRefresh: () async {
+              ref.refresh(subscriptionProvider);
+              return Future.value();
+            },
             child: subAsync.when(
               data: (subscriptions) => SubscriptionList(
                 subscriptions: subscriptions,
                 baseUrl: baseUrl,
                 apiKey: apiKey,
-                onRefresh: () async => ref.refresh(subscriptionProvider.future),
+                onRefresh: () async {
+                  ref.refresh(subscriptionProvider);
+                  return Future.value();
+                },
               ),
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (err, stack) => ListView(
