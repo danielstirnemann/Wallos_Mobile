@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart'; // 1. Import
+import 'services/wallos_settings_service.dart';
+import 'services/wallos_connection_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -8,7 +8,6 @@ class SettingsPage extends StatefulWidget {
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
-
 
 class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _tokenController = TextEditingController();
@@ -19,6 +18,7 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _loadSettings();
   }
+
   @override
   void dispose() {
     _tokenController.dispose();
@@ -26,27 +26,19 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
-  // Laden der Einstellungen
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final settings = await WallosSettingsService.loadSettings();
     setState(() {
-      _tokenController.text = prefs.getString('wallos_api_token') ?? '';
-      _urlController.text = prefs.getString('wallos_api_url') ?? '';
+      _tokenController.text = settings.token;
+      _urlController.text = settings.url;
     });
   }
 
-  // Speichern des Tokens
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = _tokenController.text.trim();
-    final url = _urlController.text.trim();
-
-    await prefs.setString('wallos_api_token', token);
-    await prefs.setString('wallos_api_url', url);
-
-    // Update controllers to show trimmed values
-    _tokenController.text = token;
-    _urlController.text = url;
+    await WallosSettingsService.saveSettings(
+      url: _urlController.text,
+      token: _tokenController.text,
+    );
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -65,6 +57,7 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
+    // Zeige Loading-Dialog
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -72,70 +65,49 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     try {
-      var finalUrl = url;
-      if (finalUrl.endsWith('/')) {
-        finalUrl = finalUrl.substring(0, finalUrl.length - 1);
-      }
-      // Korrekter Wallos-Endpunkt: Der API-Key wird als 'api_key' Query-Parameter erwartet
-      finalUrl = '$finalUrl/api/subscriptions/get_subscriptions.php?api_key=$token'; 
-
-      final response = await http.get(
-        Uri.parse(finalUrl),
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'WallosMobileApp/1.0',
-        },
-      ).timeout(const Duration(seconds: 10));
+      final result = await WallosConnectionService.testConnection(
+        url: url,
+        token: token,
+      );
 
       if (!mounted) return;
       Navigator.pop(context); // Close loading dialog
 
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(response.statusCode == 200 ? 'Erfolg' : 'Fehler'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Status Code: ${response.statusCode}'),
-              const SizedBox(height: 10),
-              const Text('Antwort vom Server:'),
-              Container(
-                padding: const EdgeInsets.all(8),
-                color: Colors.grey[200],
-                child: Text(
-                  response.body.isEmpty ? '(Leere Antwort)' : response.body,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
+      final message = result.isSuccess
+          ? 'Verbindung erfolgreich!\nStatus: ${result.statusCode}'
+          : 'Verbindungsfehler!\nStatus: ${result.statusCode}';
+
+      _showResultDialog(
+        title: result.isSuccess ? '✓ Erfolg' : '✗ Fehler',
+        message: message,
       );
     } catch (e) {
       if (!mounted) return;
       Navigator.pop(context); // Close loading dialog
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Verbindungsfehler'),
-          content: Text(e.toString()),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
+      _showResultDialog(
+        title: '✗ Fehler',
+        message: 'Verbindung fehlgeschlagen',
       );
     }
+  }
+
+  void _showResultDialog({
+    required String title,
+    required String message,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -188,3 +160,8 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 }
+
+
+
+
+
