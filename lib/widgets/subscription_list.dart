@@ -55,6 +55,7 @@ class SubscriptionList extends ConsumerWidget {
             
             // Dann Refresh
             if (result['success']) {
+              // ignore: unused_result
               ref.refresh(subscriptionProvider);
             }
           } catch (e) {
@@ -100,6 +101,7 @@ class SubscriptionList extends ConsumerWidget {
                   );
                   if (result['success']) {
                     print('Abo gelöscht - starte Refresh...');
+                    // ignore: unused_result
                     ref.refresh(subscriptionProvider);
                   }
                 }

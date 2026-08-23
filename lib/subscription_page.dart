@@ -47,6 +47,7 @@ class SubscriptionPage extends ConsumerWidget {
             if (result['success']) {
               print('Abo erfolgreich hinzugefügt - starte Refresh...');
               // Refresh den Provider SOFORT
+              // ignore: unused_result
               ref.refresh(subscriptionProvider);
             }
           } catch (e) {
@@ -85,12 +86,14 @@ class SubscriptionPage extends ConsumerWidget {
             actions: [
               IconButton(
                 icon: const Icon(Icons.refresh),
+                // ignore: unused_result
                 onPressed: () => ref.refresh(subscriptionProvider),
               ),
             ],
           ),
           body: RefreshIndicator(
             onRefresh: () async {
+              // ignore: unused_result
               ref.refresh(subscriptionProvider);
               return Future.value();
             },
@@ -100,6 +103,7 @@ class SubscriptionPage extends ConsumerWidget {
                 baseUrl: baseUrl,
                 apiKey: apiKey,
                 onRefresh: () async {
+                  // ignore: unused_result
                   ref.refresh(subscriptionProvider);
                   return Future.value();
                 },
