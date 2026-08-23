@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/subscription.dart';
 import '../providers/meta_provider.dart';
+import '../services/logo_service.dart';
+import 'logo_picker_dialog.dart';
+import 'safe_svg_logo.dart';
 
 class SubscriptionFormDialog extends ConsumerStatefulWidget {
   final Subscription? subscription;
@@ -27,6 +30,9 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
   int? _selectedPaymentMethod;
   late int _selectedCycle;
   late int _selectedFrequency;
+  
+  LogoItem? _selectedLogoItem;
+  final _logoService = LogoService();
 
   @override
   void initState() {
@@ -39,6 +45,12 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
     _nextPaymentController = TextEditingController(
       text: DateTime.now().toString().split(' ')[0]
     );
+
+    // Beim Hinzufügen eines neuen Abos soll primär zuerst ein Logo gewählt
+    // werden, damit der Name automatisch anhand des Logos vorausgefüllt wird.
+    if (widget.subscription == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _selectLogo());
+    }
   }
 
   @override
@@ -59,6 +71,24 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
     if (picked != null) {
       setState(() {
         _nextPaymentController.text = picked.toString().split(' ')[0];
+      });
+    }
+  }
+  
+  void _selectLogo() async {
+    final selected = await LogoPickerDialog.show(
+      context,
+      initialLogoSlug: _selectedLogoItem?.slug,
+    );
+    
+    if (selected != null) {
+      setState(() {
+        _selectedLogoItem = selected;
+        // Titel anhand des gewählten Logos vorausfüllen, solange der Name
+        // noch nicht manuell (anders) gesetzt wurde.
+        if (_nameController.text.isEmpty) {
+          _nameController.text = selected.name;
+        }
       });
     }
   }
@@ -88,9 +118,8 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
       'cycle': _selectedCycle,
       'frequency': _selectedFrequency,
       'next_payment': _nextPaymentController.text,
+      'logo_url': _selectedLogoItem?.url,
     });
-
-    Navigator.pop(context);
   }
 
   @override
@@ -116,6 +145,65 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Logo Picker Button (primär zuerst, füllt bei Auswahl den Namen vor)
+                Row(
+                  children: [
+                    Expanded(
+                      // Statt ElevatedButton.icon (dessen Label nicht
+                      // schrumpft) bauen wir den Button selbst auf und
+                      // umschließen das Label mit Flexible + Ellipsis, damit
+                      // er bei wenig Platz (z.B. neben der Logo-Vorschau)
+                      // nicht mehr in einen Overflow läuft.
+                      child: ElevatedButton(
+                        onPressed: _selectLogo,
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.image, size: 18),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Logo wählen',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_selectedLogoItem != null) ...
+                      [
+                        const SizedBox(width: 12),
+                        Container(
+                          width: 44,
+                          height: 44,
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: Color(
+                              int.parse(
+                                '0xff${_selectedLogoItem!.hex.substring(1)}',
+                              ),
+                            ).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: SafeSvgLogo(
+                            key: ValueKey(_selectedLogoItem!.slug),
+                            url: _selectedLogoItem!.url,
+                            color: Color(int.parse('0xff${_selectedLogoItem!.hex.substring(1)}')),
+                            fallbackLetter: _selectedLogoItem!.name.isNotEmpty
+                                ? _selectedLogoItem!.name.substring(0, 1).toUpperCase()
+                                : '?',
+                          ),
+                        ),
+                      ],
+                  ],
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _nameController,
                   decoration: const InputDecoration(

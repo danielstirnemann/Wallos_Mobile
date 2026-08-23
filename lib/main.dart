@@ -1,13 +1,23 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'app_theme.dart';
 import 'main_drawer.dart';
 import 'dashboard_page.dart';
 import 'subscription_page.dart';
 import 'settings_page.dart';
 import 'widgets/gradient_appbar.dart';
+import 'widgets/sync_badge.dart';
+import 'providers/subscription_provider.dart';
 
 void main() {
+  // Initialisiere die Datenbank für Desktop (Linux, etc.) falls nötig
+  if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
+
   runApp(
     const ProviderScope(
       child: WallosApp(),
@@ -73,6 +83,7 @@ class _HomePage extends StatelessWidget {
         ),
         textColor: Colors.white,
         elevation: 8,
+        actions: const [SyncBadge()],
       ),
       drawer: MainDrawer(onPageChanged: onPageChanged),
       body: const DashboardPage(),
@@ -80,13 +91,13 @@ class _HomePage extends StatelessWidget {
   }
 }
 
-class _SubscriptionPageWrapper extends StatelessWidget {
+class _SubscriptionPageWrapper extends ConsumerWidget {
   final Function(int) onPageChanged;
 
-  const _SubscriptionPageWrapper({required this.onPageChanged});
+  const _SubscriptionPageWrapper({super.key, required this.onPageChanged});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: GradientAppBar(
         title: 'Abonnemente',
@@ -101,34 +112,20 @@ class _SubscriptionPageWrapper extends StatelessWidget {
         textColor: Colors.white,
         elevation: 8,
         actions: [
-          // Toggle Button
-          Consumer(
-            builder: (context, ref, child) {
-              return IconButton(
-                icon: const Icon(Icons.visibility),
-                onPressed: () {},
-              );
-            },
-          ),
           // Refresh Button
-          Consumer(
-            builder: (context, ref, child) {
-              return IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: () {},
-              );
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Aktualisieren',
+            onPressed: () {
+              // ignore: unused_result
+              ref.refresh(subscriptionProvider);
             },
           ),
+          const SyncBadge(),
         ],
       ),
       drawer: MainDrawer(onPageChanged: onPageChanged),
       body: const SubscriptionPage(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // FAB action
-        },
-        child: const Icon(Icons.add),
-      ),
     );
   }
 }

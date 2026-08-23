@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../models/subscription.dart';
+import '../services/subscription_crud_service.dart';
 import '../providers/subscription_crud_provider.dart';
 import '../providers/subscription_provider.dart';
 import 'subscription_form_dialog.dart';
@@ -68,6 +70,7 @@ class SubscriptionList extends ConsumerWidget {
               nextPayment: data['next_payment'],
               categoryId: data['category_id'] as int?,
               paymentMethodId: data['payment_method_id'] as int?,
+              logoUrl: data['logo_url'],
             );
             
             // Dialog schließen ZUERST
@@ -119,25 +122,31 @@ class SubscriptionList extends ConsumerWidget {
             onPressed: () async {
               Navigator.pop(dialogContext);
               try {
-                final result = await SubscriptionCrudProvider.deleteSubscription(
-                  baseUrl: baseUrl,
-                  apiKey: apiKey,
-                  id: subscription.id,
-                );
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).clearSnackBars();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(result['message'])),
+                // Nutze remoteId für den API-Call (Wallos ID)
+                // Falls remoteId null ist, lösche nur lokal
+                if (subscription.remoteId != null) {
+                  final result = await SubscriptionCrudProvider.deleteSubscription(
+                    baseUrl: baseUrl,
+                    apiKey: apiKey,
+                    id: subscription.remoteId!,
                   );
-                  if (result['success']) {
-                    print('Abo gelöscht - starte Refresh...');
-                    // ignore: unused_result
-                    ref.refresh(subscriptionProvider);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(result['message'])),
+                    );
                   }
+                }
+                
+                // Lösche IMMER auch lokal
+                final db = SubscriptionCrudService();
+                await db.deleteSubscription(subscription.id);
+                
+                if (context.mounted) {
+                  // ignore: unused_result
+                  ref.refresh(subscriptionProvider);
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).clearSnackBars();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Fehler: $e')),
                   );
@@ -165,17 +174,25 @@ class SubscriptionList extends ConsumerWidget {
             child: Container(
               width: 48,
               height: 48,
-              color: Colors.transparent,
-              padding: const EdgeInsets.all(4),
+              color: Colors.grey.withOpacity(0.1),
+              padding: const EdgeInsets.all(8),
               child: item.logoUrl != null
-                  ? Image.network(
-                      item.logoUrl!,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => Icon(
-                        item.icon,
-                        color: Colors.grey[700],
-                      ),
-                    )
+                  ? (item.logoUrl!.endsWith('.svg')
+                      ? SvgPicture.network(
+                          item.logoUrl!,
+                          fit: BoxFit.contain,
+                          placeholderBuilder: (context) => const Center(
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : Image.network(
+                          item.logoUrl!,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => Icon(
+                            item.icon,
+                            color: Colors.grey[700],
+                          ),
+                        ))
                   : Icon(item.icon, color: Colors.grey[700]),
             ),
           ),

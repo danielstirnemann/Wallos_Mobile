@@ -37,6 +37,13 @@ dependencies:
   shared_preferences: ^2.5.5
   flutter_riverpod: ^3.4.2
   http: ^1.6.0
+  
+  # SQLite Database
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0+1
+  
+  # SVG Support
+  flutter_svg: ^2.0.10+1
 
 dev_dependencies:
   flutter_test:
@@ -48,6 +55,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  
+
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -61,9 +70,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/logos.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import '../services/logo_upload_helper.dart';
+import '../services/wallos_multipart_client.dart';
 
 class SubscriptionCrudProvider {
   /// POST-Request ohne automatisches Redirect-Folgen (verhindert 301-Probleme)
@@ -50,6 +52,7 @@ class SubscriptionCrudProvider {
     required String nextPayment,
     int? categoryId,
     int? paymentMethodId,
+    String? logoUrl,
   }) async {
     if (baseUrl.isEmpty || apiKey.isEmpty) {
       print('[ADD] FEHLER: baseUrl leer oder apiKey leer');
@@ -94,12 +97,26 @@ class SubscriptionCrudProvider {
 
     try {
       print('[ADD] Body: ${body.keys.toList()}');
-      final response = await _postWithoutRedirect(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: body,
-      );
-      
+
+      // Logo herunterladen/konvertieren und als Datei mitschicken.
+      // Wallos erwartet dafür entweder "logo_url" (Server lädt selbst herunter,
+      // kann aber kein SVG dekodieren) oder "$_FILES['logo']" - daher wird das
+      // Icon hier lokal zu PNG rasterisiert und als Multipart-Datei hochgeladen.
+      final preparedLogo = await LogoUploadHelper.prepare(logoUrl);
+      final response = preparedLogo != null
+          ? await WallosMultipartClient.postWithoutRedirect(
+              Uri.parse(url),
+              fields: body,
+              fileFieldName: 'logo',
+              fileBytes: preparedLogo.bytes,
+              fileName: preparedLogo.filename,
+            )
+          : await _postWithoutRedirect(
+              Uri.parse(url),
+              headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+              body: body,
+            );
+
       print('[ADD] Status: ${response.statusCode}');
       print('[ADD] Response: ${response.body.substring(0, 100)}');
 
@@ -127,9 +144,10 @@ class SubscriptionCrudProvider {
     required int currencyId,
     required int cycle,
     required int frequency,
-    required String nextPayment,
+    required    String nextPayment,
     int? categoryId,
     int? paymentMethodId,
+    String? logoUrl,
   }) async {
     var cleanUrl = baseUrl.trim();
     if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
@@ -157,11 +175,20 @@ class SubscriptionCrudProvider {
       'auto_renew': 'on',
     };
 
-    final response = await _postWithoutRedirect(
-      Uri.parse(url),
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: body,
-    );
+    final preparedLogo = await LogoUploadHelper.prepare(logoUrl);
+    final response = preparedLogo != null
+        ? await WallosMultipartClient.postWithoutRedirect(
+            Uri.parse(url),
+            fields: body,
+            fileFieldName: 'logo',
+            fileBytes: preparedLogo.bytes,
+            fileName: preparedLogo.filename,
+          )
+        : await _postWithoutRedirect(
+            Uri.parse(url),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: body,
+          );
 
     if (response.statusCode == 200) {
       final data = json.decode(response.body);

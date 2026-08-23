@@ -15,7 +15,7 @@ class SubscriptionPage extends ConsumerStatefulWidget {
 class _SubscriptionPageState extends ConsumerState<SubscriptionPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  bool _showInactive = false;  // Toggle zwischen aktiv/inaktiv
+  bool _showInactive = false;  // Wieder lokaler State
 
   @override
   void dispose() {
@@ -38,35 +38,59 @@ class _SubscriptionPageState extends ConsumerState<SubscriptionPage> {
 
         return Column(
             children: [
-              // Suchleiste
+              // Suchleiste + Toggle
               Padding(
                 padding: const EdgeInsets.all(8.0),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value.toLowerCase();
-                    });
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Abos durchsuchen...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                            },
-                          )
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (value) {
+                          setState(() {
+                            _searchQuery = value.toLowerCase();
+                          });
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Abos durchsuchen...',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() {
+                                      _searchQuery = '';
+                                    });
+                                  },
+                                )
+                              : null,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                      ),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  ),
+                    IconButton(
+                      icon: Icon(
+                        _showInactive ? Icons.visibility_off : Icons.visibility,
+                        color: _showInactive ? Colors.orange : Colors.grey,
+                      ),
+                      tooltip: _showInactive ? 'Aktive zeigen' : 'Inaktive zeigen',
+                      onPressed: () => setState(() => _showInactive = !_showInactive),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add),
+                      tooltip: 'Abo hinzufügen',
+                      onPressed: () => SubscriptionDialogHandler.showAddDialog(
+                        context,
+                        ref,
+                        baseUrl,
+                        apiKey,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               // Abos Liste
@@ -150,16 +174,4 @@ class _SubscriptionPageState extends ConsumerState<SubscriptionPage> {
     );
   }
 
-  // FAB als lokales Widget
-  FloatingActionButton _buildFAB(BuildContext context, WidgetRef ref, String baseUrl, String apiKey) {
-    return FloatingActionButton(
-      onPressed: () => SubscriptionDialogHandler.showAddDialog(
-        context,
-        ref,
-        baseUrl,
-        apiKey,
-      ),
-      child: const Icon(Icons.add),
-    );
-  }
 }
