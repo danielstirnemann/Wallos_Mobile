@@ -170,6 +170,54 @@ class SubscriptionCrudProvider {
     return {'success': false, 'message': 'Fehler: ${response.statusCode}'};
   }
 
+  /// Togglet den Status eines Abos (aktiv <-> inaktiv)
+  static Future<Map<String, dynamic>> toggleInactiveStatus({
+    required String baseUrl,
+    required String apiKey,
+    required int id,
+    required int currentInactiveStatus,  // 0=aktiv, 1=inaktiv
+  }) async {
+    if (baseUrl.isEmpty || apiKey.isEmpty) {
+      return {'success': false, 'message': 'API-URL oder Token fehlt'};
+    }
+
+    var cleanUrl = baseUrl.trim();
+    if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
+    if (!cleanUrl.startsWith('http')) {
+      cleanUrl = cleanUrl.contains('duckdns') ? 'https://$cleanUrl' : 'http://$cleanUrl';
+    }
+    if (cleanUrl.startsWith('http://') && cleanUrl.contains('duckdns')) {
+      cleanUrl = cleanUrl.replaceFirst('http://', 'https://');
+    }
+
+    final url = '$cleanUrl/api/subscriptions/set_subscriptions.php';
+    final newInactiveStatus = currentInactiveStatus == 0 ? 1 : 0;  // Toggle
+
+    final body = {
+      'api_key': apiKey,
+      'action': 'edit',
+      'id': id.toString(),
+      'inactive': newInactiveStatus.toString(),
+    };
+
+    try {
+      final response = await _postWithoutRedirect(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final statusText = newInactiveStatus == 0 ? 'aktiviert' : 'deaktiviert';
+        return {'success': data['success'] == true, 'message': 'Abo $statusText'};
+      }
+      return {'success': false, 'message': 'Fehler: ${response.statusCode}'};
+    } catch (e) {
+      return {'success': false, 'message': 'Fehler: $e'};
+    }
+  }
+
   static Future<Map<String, dynamic>> deleteSubscription({
     required String baseUrl,
     required String apiKey,

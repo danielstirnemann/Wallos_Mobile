@@ -19,6 +19,36 @@ class SubscriptionList extends ConsumerWidget {
     required this.onRefresh,
   });
 
+  void _toggleStatus(BuildContext context, WidgetRef ref, Subscription subscription) async {
+    try {
+      final result = await SubscriptionCrudProvider.toggleInactiveStatus(
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        id: subscription.id,
+        currentInactiveStatus: subscription.inactive,
+      );
+      
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'])),
+        );
+        
+        if (result['success']) {
+          // ignore: unused_result
+          ref.refresh(subscriptionProvider);
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler: $e')),
+        );
+      }
+    }
+  }
+
   void _showEditDialog(BuildContext context, WidgetRef ref, Subscription subscription) {
     showDialog(
       context: context,
@@ -157,9 +187,21 @@ class SubscriptionList extends ConsumerWidget {
                 _showEditDialog(context, ref, item);
               } else if (value == 'delete') {
                 _showDeleteDialog(context, ref, item);
+              } else if (value == 'toggle') {
+                _toggleStatus(context, ref, item);
               }
             },
             itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'toggle',
+                child: Text(
+                  item.inactive == 0 ? 'Deaktivieren' : 'Aktivieren',
+                  style: TextStyle(
+                    color: item.inactive == 0 ? Colors.orange : Colors.green,
+                  ),
+                ),
+              ),
+              const PopupMenuDivider(),
               const PopupMenuItem(
                 value: 'edit',
                 child: Text('Bearbeiten'),
