@@ -180,7 +180,7 @@ class SubscriptionList extends ConsumerWidget {
             ),
           ),
           title: Text(item.name),
-          subtitle: Text('${item.price} CHF'),
+          subtitle: Text('${item.price.toStringAsFixed(2)} CHF'),
           trailing: PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'edit') {

@@ -27,14 +27,14 @@ class DashboardCard extends StatelessWidget {
           color: backgroundColor ?? Colors.blue.shade50,
           borderRadius: BorderRadius.circular(8),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Row(
           children: [
-            // Icon links
-            Icon(icon, size: 24, color: Colors.blue[700]),
-            const SizedBox(width: 12),
+            // Icon links (klein)
+            Icon(icon, size: 18, color: Colors.blue[700]),
+            const SizedBox(width: 6),
             
-            // Titel + Subtitle (expandiert)
+            // Titel + Subtitle (expandiert, minimal)
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -42,33 +42,43 @@ class DashboardCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.titleSmall,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
                     overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                   if (subtitle != null)
                     Padding(
-                      padding: const EdgeInsets.only(top: 2),
+                      padding: const EdgeInsets.only(top: 1),
                       child: Text(
                         subtitle!,
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.grey[600],
+                          fontSize: 10,
                         ),
                         overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
                       ),
                     ),
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 4),
             
-            // Preis rechts (fettgedruckt)
-            Text(
-              value,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.blue[900],
+            // Preis rechts (fettgedruckt, kompakt)
+            Flexible(
+              child: Text(
+                value,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[900],
+                  fontSize: 12,
+                ),
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
               ),
-              textAlign: TextAlign.right,
             ),
           ],
         ),
