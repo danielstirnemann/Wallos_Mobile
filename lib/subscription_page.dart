@@ -36,36 +36,7 @@ class _SubscriptionPageState extends ConsumerState<SubscriptionPage> {
         print('[SubscriptionPage] baseUrl: $baseUrl');
         print('[SubscriptionPage] apiKey: ${apiKey.isEmpty ? "LEER" : "${apiKey.substring(0, 10)}..."}');
 
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Abonnemente'),
-            actions: [
-              // Toggle Button für aktiv/inaktiv
-              Tooltip(
-                message: _showInactive ? 'Aktive zeigen' : 'Inaktive zeigen',
-                child: IconButton(
-                  icon: Icon(
-                    _showInactive ? Icons.visibility_off : Icons.visibility,
-                    color: _showInactive ? Colors.orange : Colors.white,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _showInactive = !_showInactive;
-                      // Clear search wenn wechsel
-                      _searchController.clear();
-                      _searchQuery = '';
-                    });
-                  },
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                // ignore: unused_result
-                onPressed: () => ref.refresh(subscriptionProvider),
-              ),
-            ],
-          ),
-          body: Column(
+        return Column(
             children: [
               // Suchleiste
               Padding(
@@ -174,18 +145,21 @@ class _SubscriptionPageState extends ConsumerState<SubscriptionPage> {
                 ),
               ),
             ],
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => SubscriptionDialogHandler.showAddDialog(
-              context,
-              ref,
-              baseUrl,
-              apiKey,
-            ),
-            child: const Icon(Icons.add),
-          ),
-        );
+          );
       },
+    );
+  }
+
+  // FAB als lokales Widget
+  FloatingActionButton _buildFAB(BuildContext context, WidgetRef ref, String baseUrl, String apiKey) {
+    return FloatingActionButton(
+      onPressed: () => SubscriptionDialogHandler.showAddDialog(
+        context,
+        ref,
+        baseUrl,
+        apiKey,
+      ),
+      child: const Icon(Icons.add),
     );
   }
 }

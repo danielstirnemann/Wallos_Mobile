@@ -1,10 +1,51 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/subscription_provider.dart';
-import 'widgets/dashboard_card.dart';
+import 'widgets/gradient_card.dart';
+import 'widgets/compact_list_card.dart';
+import 'app_theme.dart';
 
-class DashboardPage extends ConsumerWidget {
+class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
+
+  @override
+  ConsumerState<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends ConsumerState<DashboardPage> {
+  Timer? _midnightTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleMidnightRefresh();
+  }
+
+  @override
+  void dispose() {
+    _midnightTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Plant einen Refresh um Mitternacht ein
+  void _scheduleMidnightRefresh() {
+    final now = DateTime.now();
+    final midnight = DateTime(now.year, now.month, now.day + 1);
+    final durationUntilMidnight = midnight.difference(now);
+
+    _midnightTimer?.cancel();
+    _midnightTimer = Timer(durationUntilMidnight, () {
+      if (mounted) {
+        // Refresh Dashboard bei Mitternacht
+        // ignore: unused_result
+        ref.refresh(subscriptionProvider);
+        
+        // Plane nächsten Refresh ein
+        _scheduleMidnightRefresh();
+      }
+    });
+  }
 
   /// Konvertiert cycle-ID zu lesbarem Text
   /// 1=täglich, 2=wöchentlich, 3=monatlich, 4=jährlich, 5=einmalig
@@ -85,31 +126,45 @@ class DashboardPage extends ConsumerWidget {
     
     return Row(
       children: [
-        // Dieser Monat
+        // Dieser Monat (Gradient)
         Expanded(
-          child: DashboardCard(
+          child: GradientCard(
             title: currentMonthName,
             value: '${currentMonthTotal.toStringAsFixed(2)} CHF',
             icon: Icons.calendar_month,
-            backgroundColor: Colors.blue.shade50,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.cyan.shade400,
+                Colors.blue.shade600,
+              ],
+            ),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 16),
         
-        // Nächster Monat
+        // Nächster Monat (Gradient)
         Expanded(
-          child: DashboardCard(
+          child: GradientCard(
             title: nextMonthName,
             value: '${nextMonthTotal.toStringAsFixed(2)} CHF',
             icon: Icons.calendar_month,
-            backgroundColor: Colors.blue.shade100,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.teal.shade400,
+                Colors.cyan.shade600,
+              ],
+            ),
           ),
         ),
       ],
     );
   }
   
-  /// Baut die nächsten 3 Zahlungen Widget
+  /// Baut die nächsten 3 Zahlungen Widget (kompakte Listen-Ansicht)
   Widget _buildUpcomingPayments(BuildContext context, List subscriptions) {
     // Sortiere nach nächstem Zahlungsdatum
     final upcoming = List.from(subscriptions)
@@ -125,33 +180,71 @@ class DashboardPage extends ConsumerWidget {
     }
 
     return Column(
-      children: upcoming.map((sub) {
-        final paymentDate = DateTime.tryParse(sub.nextPayment);
-        final formattedDate = paymentDate != null
-            ? '${paymentDate.day.toString().padLeft(2, '0')}.${paymentDate.month.toString().padLeft(2, '0')}.${paymentDate.year}'
-            : sub.nextPayment;
-        
-        // Berechne Tage bis Zahlung
-        final daysUntil = paymentDate?.difference(DateTime.now()).inDays ?? 0;
-        final daysLabel = daysUntil == 0
-            ? 'Heute'
-            : daysUntil == 1
-                ? 'Morgen'
-                : 'in $daysUntil Tagen';
-
-        return DashboardCard(
-          title: sub.name,
-          value: '${sub.price.toStringAsFixed(2)} CHF',
-          subtitle: '$formattedDate ($daysLabel)',
-          icon: Icons.calendar_today,
-          backgroundColor: Colors.red.shade50,
-        );
-      }).toList(),
+      children: [
+        for (int i = 0; i < upcoming.length; i++) ...
+          [
+            CompactListCard(
+              title: upcoming[i].name,
+              value: '${upcoming[i].price.toStringAsFixed(2)} CHF',
+              subtitle: _formatPaymentSubtitle(upcoming[i].nextPayment),
+              icon: Icons.calendar_today,
+              accentColor: _getPaymentColor(i),
+            ),
+            if (i < upcoming.length - 1) const SizedBox(height: 8),
+          ]
+      ],
     );
+  }
+  
+  /// Formatiert das Zahlungs-Datum für die Anzeige
+  String _formatPaymentSubtitle(String nextPayment) {
+    final paymentDate = DateTime.tryParse(nextPayment);
+    if (paymentDate == null) return nextPayment;
+    
+    final formattedDate = '${paymentDate.day.toString().padLeft(2, '0')}.${paymentDate.month.toString().padLeft(2, '0')}.${paymentDate.year}';
+    final daysUntil = paymentDate.difference(DateTime.now()).inDays;
+    
+    final daysLabel = daysUntil == 0
+        ? 'Heute'
+        : daysUntil == 1
+            ? 'Morgen'
+            : daysUntil < 0
+                ? '${daysUntil.abs()} Tage überfällig'
+                : 'in $daysUntil Tagen';
+    
+    return '$formattedDate • $daysLabel';
+  }
+  
+  /// Gibt die Farbe basierend auf Position zurück
+  Color _getPaymentColor(int index) {
+    switch (index) {
+      case 0: return const Color(0xFFEF4444);  // Rot
+      case 1: return const Color(0xFFF59E0B);  // Amber
+      case 2: return const Color(0xFF8B5CF6);  // Lila
+      default: return const Color(0xFF6366F1); // Indigo
+    }
+  }
+  
+  /// Formatiert Subtitle für Top Abos
+  String _buildTopAboSubtitle(dynamic sub) {
+    final cycleLabel = _getCycleLabel(sub.cycle);
+    final monthlyPrice = _priceToMonthly(sub.price, sub.cycle);
+    return '$cycleLabel • ${monthlyPrice.toStringAsFixed(2)} CHF/Monat';
+  }
+  
+  /// Gibt Farbe für Top Abo basierend auf Position zurück
+  Color _getTopAboColor(int index) {
+    switch (index) {
+      case 0: return const Color(0xFF8B5CF6);  // Lila
+      case 1: return const Color(0xFF06B6D4);  // Cyan
+      case 2: return const Color(0xFFF59E0B);  // Amber
+      default: return const Color(0xFF6366F1); // Indigo
+    }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    final ref = this.ref;
     final subAsync = ref.watch(subscriptionProvider);
 
     return RefreshIndicator(
@@ -194,27 +287,43 @@ class DashboardPage extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   
-                  // Monatliche Ausgaben für diesen und nächsten Monat (Side by Side)
+                  // Monatliche Ausgaben für diesen und nächsten Monat (Gradient Cards)
                   _buildMonthlyComparison(context, activeSubscriptions),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   
-                  // Durchschnittliche monatliche Ausgaben
-                  DashboardCard(
+                  // Durchschnittliche monatliche Ausgaben (Gradient)
+                  GradientCard(
                     title: 'Durchschnittlich pro Monat',
                     value: '${totalMonthly.toStringAsFixed(2)} CHF',
+                    subtitle: '${activeSubscriptions.length} aktive Abos',
                     icon: Icons.trending_up,
-                    backgroundColor: Colors.purple.shade50,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.deepPurple.shade400,
+                        Colors.purple.shade600,
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   
-                  // Jährliche Ausgaben
-                  DashboardCard(
+                  // Jährliche Ausgaben (Gradient)
+                  GradientCard(
                     title: 'Jährliche Ausgaben',
                     value: '${totalYearly.toStringAsFixed(2)} CHF',
+                    subtitle: 'Pro Jahr',
                     icon: Icons.calendar_today,
-                    backgroundColor: Colors.orange.shade50,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.amber.shade400,
+                        Colors.orange.shade600,
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   // Nächste Zahlungen Section
                   Text(
@@ -223,7 +332,7 @@ class DashboardPage extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   _buildUpcomingPayments(context, activeSubscriptions),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   // Top Abos Section
                   Text(
@@ -239,17 +348,19 @@ class DashboardPage extends ConsumerWidget {
                     )
                   else
                     Column(
-                      children: topAbos.map((sub) {
-                        final cycleLabel = _getCycleLabel(sub.cycle);
-                        final monthlyPrice = _priceToMonthly(sub.price, sub.cycle);
-                        return DashboardCard(
-                          title: sub.name,
-                          value: '${sub.price.toStringAsFixed(2)} CHF',
-                          subtitle: '$cycleLabel (${monthlyPrice.toStringAsFixed(2)} CHF/Monat)',
-                          icon: Icons.shopping_bag,
-                          backgroundColor: Colors.purple.shade50,
-                        );
-                      }).toList(),
+                      children: [
+                        for (int i = 0; i < topAbos.length; i++) ...
+                          [
+                            CompactListCard(
+                              title: topAbos[i].name,
+                              value: '${topAbos[i].price.toStringAsFixed(2)} CHF',
+                              subtitle: _buildTopAboSubtitle(topAbos[i]),
+                              icon: Icons.shopping_bag,
+                              accentColor: _getTopAboColor(i),
+                            ),
+                            if (i < topAbos.length - 1) const SizedBox(height: 8),
+                          ]
+                      ],
                     ),
                   
                   const SizedBox(height: 16),
