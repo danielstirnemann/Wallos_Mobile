@@ -117,8 +117,7 @@ class _SubscriptionPageWrapper extends ConsumerWidget {
             icon: const Icon(Icons.refresh),
             tooltip: 'Aktualisieren',
             onPressed: () {
-              // ignore: unused_result
-              ref.refresh(subscriptionProvider);
+              ref.invalidate(subscriptionProvider);
             },
           ),
           const SyncBadge(),

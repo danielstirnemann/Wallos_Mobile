@@ -24,12 +24,22 @@ class AppDatabase {
 
     final db = await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _createTables,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 4) {
           await db.execute('DROP TABLE IF EXISTS subscriptions');
           await _createTables(db, newVersion);
+          return;
+        }
+        if (oldVersion < 5) {
+          // Neue Spalte für offline vorgemerkte Löschungen: ein bereits
+          // synchronisiertes Abo wird beim Löschen zunächst nur markiert,
+          // damit die Löschung beim nächsten Sync auch an die Wallos-API
+          // übertragen werden kann (Offline-First für Löschen).
+          await db.execute(
+            'ALTER TABLE subscriptions ADD COLUMN pending_delete INTEGER DEFAULT 0',
+          );
         }
       },
     );
@@ -77,7 +87,8 @@ class AppDatabase {
         inactive INTEGER DEFAULT 0,
         next_payment TEXT,
         logo_url TEXT,
-        synced INTEGER DEFAULT 1
+        synced INTEGER DEFAULT 1,
+        pending_delete INTEGER DEFAULT 0
       )
     ''');
   }
@@ -111,15 +122,48 @@ class AppDatabase {
     return id;
   }
 
-  /// Speichert mehrere Abos vom Server (API Import)
+  /// Speichert mehrere Abos vom Server (API Import/Merge).
+  ///
+  /// WICHTIG (Offline-First): Ein Abo, das lokal noch nicht synchronisiert
+  /// ist (synced = 0) oder zur Löschung vorgemerkt ist (pending_delete = 1),
+  /// wird hier NICHT überschrieben. Sonst würde ein (möglicherweise
+  /// veralteter) API-Fetch, der zufällig parallel zu einem gerade erst
+  /// lokal gespeicherten Edit/Toggle/Delete läuft, diese Änderung wieder
+  /// rückgängig machen, BEVOR sie überhaupt zur API hochgeladen werden
+  /// konnte - das Edit wäre dann sowohl lokal als auch auf dem Server
+  /// verloren (sichtbares Symptom: "Dashboard/Liste aktualisiert sich
+  /// nicht", weil die Änderung intern schon wieder verworfen wurde).
+  ///
+  /// Außerdem wird ein bereits vorhandener lokaler Eintrag per UPDATE
+  /// aktualisiert statt per "INSERT OR REPLACE" ersetzt, damit die lokale
+  /// "id" stabil bleibt (REPLACE würde bei einem UNIQUE-Konflikt auf
+  /// remote_id die Zeile löschen und mit einer NEUEN id neu anlegen).
   Future<void> insertSubscriptions(List<dynamic> subscriptions) async {
     final db = await database;
-    final batch = db.batch();
-    
+
     print('[DB] Starte Import von ${subscriptions.length} Abos...');
     for (var sub in subscriptions) {
+      final remoteId = sub.remoteId ?? sub.id;
+
+      final existing = await db.query(
+        'subscriptions',
+        where: 'remote_id = ?',
+        whereArgs: [remoteId],
+        limit: 1,
+      );
+
+      if (existing.isNotEmpty) {
+        final localRow = existing.first;
+        final isPending = (localRow['synced'] as int? ?? 1) == 0;
+        final isPendingDelete = (localRow['pending_delete'] as int? ?? 0) == 1;
+        if (isPending || isPendingDelete) {
+          print('[DB] Ignoriere Server-Stand für "${sub.name}" (remote_id: $remoteId) - lokal noch nicht synchronisierte Änderung vorhanden.');
+          continue;
+        }
+      }
+
       final map = {
-        'remote_id': sub.remoteId ?? sub.id,
+        'remote_id': remoteId,
         'name': sub.name,
         'price': sub.price,
         'cycle': sub.cycle,
@@ -133,37 +177,26 @@ class AppDatabase {
         'synced': 1, // API Daten sind immer synced
       };
 
-      batch.insert(
-        'subscriptions',
-        map,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      if (existing.isNotEmpty) {
+        await db.update(
+          'subscriptions',
+          map,
+          where: 'id = ?',
+          whereArgs: [existing.first['id']],
+        );
+      } else {
+        await db.insert('subscriptions', map);
+      }
     }
-    await batch.commit(noResult: true);
     print('[DB] Import abgeschlossen.');
   }
 
-  /// Gibt ein Abo nach ID zurück
-  Future<dynamic?> getSubscriptionById(int id) async {
-    final db = await database;
-    final maps = await db.query(
-      'subscriptions',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-
-    if (maps.isNotEmpty) {
-      return _mapToSubscription(maps.first);
-    }
-    return null;
-  }
-
-  /// Gibt alle aktiven Abos zurück
+  /// Gibt alle aktiven Abos zurück (ohne zur Löschung vorgemerkte)
   Future<List<dynamic>> getAllActiveSubscriptions() async {
     final db = await database;
     final maps = await db.query(
       'subscriptions',
-      where: 'inactive = ?',
+      where: 'inactive = ? AND pending_delete = 0',
       whereArgs: [0],
       orderBy: 'name ASC',
     );
@@ -171,24 +204,13 @@ class AppDatabase {
     return maps.map((map) => _mapToSubscription(map)).toList();
   }
 
-  /// Gibt alle inaktiven Abos zurück
+  /// Gibt alle inaktiven Abos zurück (ohne zur Löschung vorgemerkte)
   Future<List<dynamic>> getAllInactiveSubscriptions() async {
     final db = await database;
     final maps = await db.query(
       'subscriptions',
-      where: 'inactive = ?',
+      where: 'inactive = ? AND pending_delete = 0',
       whereArgs: [1],
-      orderBy: 'name ASC',
-    );
-
-    return maps.map((map) => _mapToSubscription(map)).toList();
-  }
-
-  /// Gibt alle Abos zurück
-  Future<List<dynamic>> getAllSubscriptions() async {
-    final db = await database;
-    final maps = await db.query(
-      'subscriptions',
       orderBy: 'name ASC',
     );
 
@@ -221,7 +243,10 @@ class AppDatabase {
     );
   }
 
-  /// Löscht ein Abo
+  /// Löscht ein Abo endgültig (hart) aus der lokalen DB.
+  /// Wird verwendet für noch nie synchronisierte Abos (der Server weiß
+  /// nichts von ihnen) sowie vom SyncService, NACHDEM eine vorgemerkte
+  /// Löschung erfolgreich an die API übertragen wurde.
   Future<int> deleteSubscription(int id) async {
     final db = await database;
     return await db.delete(
@@ -231,17 +256,34 @@ class AppDatabase {
     );
   }
 
-  /// Löscht alle Abos
+  /// Merkt ein bereits synchronisiertes Abo zur Löschung vor, statt es
+  /// sofort hart zu löschen. So kann die Löschung offline gespeichert und
+  /// beim nächsten Sync an die Wallos-API übertragen werden.
+  Future<int> markPendingDelete(int id) async {
+    final db = await database;
+    return await db.update(
+      'subscriptions',
+      {'pending_delete': 1, 'synced': 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Löscht ALLE lokal zwischengespeicherten Abos.
+  ///
+  /// Wird benötigt, wenn die Wallos-Zugangsdaten (URL/Token) auf einen
+  /// ANDEREN Account/Server umgestellt werden: die lokalen "remote_id"-Werte
+  /// beziehen sich sonst weiterhin auf den alten Account, was zu doppelten
+  /// Abos oder UNIQUE-Constraint-Fehlern führen kann, sobald der neue
+  /// Account zufällig dieselbe ID vergibt.
+  ///
+  /// SICHERHEIT: Das ist eine rein lokale SQLite-Operation (löscht nur die
+  /// Kopie auf dem Gerät). Diese Methode darf NIEMALS einen HTTP-/API-Aufruf
+  /// an Wallos auslösen - die Daten im Wallos-Webinterface dürfen dadurch
+  /// unter keinen Umständen verändert oder gelöscht werden.
   Future<int> deleteAllSubscriptions() async {
     final db = await database;
     return await db.delete('subscriptions');
-  }
-
-  /// Gibt Anzahl der Abos zurück
-  Future<int> getSubscriptionCount() async {
-    final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM subscriptions');
-    return Sqflite.firstIntValue(result) ?? 0;
   }
 
   /// Gibt alle ungesyncten (ausstehenden) Abos zurück
@@ -263,17 +305,6 @@ class AppDatabase {
       'SELECT COUNT(*) as count FROM subscriptions WHERE synced = 0',
     );
     return Sqflite.firstIntValue(result) ?? 0;
-  }
-
-  /// Markiert alle ausstehenden Änderungen als synced
-  Future<void> markAllAsSynced() async {
-    final db = await database;
-    await db.update(
-      'subscriptions',
-      {'synced': 1},
-      where: 'synced = ?',
-      whereArgs: [0],
-    );
   }
 
   /// Markiert ein spezifisches Abo als synced
@@ -317,6 +348,7 @@ class AppDatabase {
       nextPayment: map['next_payment'] ?? '',
       logoUrl: map['logo_url'],
       synced: map['synced'] ?? 1,
+      pendingDelete: map['pending_delete'] ?? 0,
     );
   }
 }
@@ -336,6 +368,7 @@ class SubscriptionEntity {
   final String nextPayment;
   final String? logoUrl;
   final int synced;
+  final int pendingDelete;
 
   SubscriptionEntity({
     required this.id,
@@ -351,5 +384,6 @@ class SubscriptionEntity {
     required this.nextPayment,
     this.logoUrl,
     required this.synced,
+    this.pendingDelete = 0,
   });
 }

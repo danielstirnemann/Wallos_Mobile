@@ -34,21 +34,33 @@ class SubscriptionCrudService {
     return await _markAsNotSynced(subscription.id);
   }
 
-  /// Deletes a subscription locally (marks as not synced first)
+  /// Deletes a subscription that was never synced to the API (hard delete,
+  /// the server doesn't know about it, so there's nothing to queue).
   Future<int> deleteSubscription(int id) async {
-    print('[CRUD] Lösche Abo: $id');
+    print('[CRUD] Lösche Abo (hart): $id');
     
     return await _db.deleteSubscription(id);
   }
 
-  /// Gets all active subscriptions
-  Future<List<dynamic>> getActiveSubscriptions() async {
-    return await _db.getAllActiveSubscriptions();
+  /// Marks an already-synced subscription for deletion (Offline-First):
+  /// the row stays in the local DB (hidden from active/inactive queries)
+  /// until the next successful sync actually deletes it on the server AND
+  /// locally. This ensures deleting while offline isn't lost.
+  Future<int> markForDeletion(int id) async {
+    print('[CRUD] Merke Abo zur Löschung vor: $id');
+
+    return await _db.markPendingDelete(id);
   }
 
-  /// Gets all inactive subscriptions
-  Future<List<dynamic>> getInactiveSubscriptions() async {
-    return await _db.getAllInactiveSubscriptions();
+  /// Löscht alle lokal zwischengespeicherten Abos (z.B. beim Wechsel der
+  /// Wallos-Zugangsdaten/des Accounts, damit alte und neue Daten nicht
+  /// vermischt werden).
+  ///
+  /// SICHERHEIT: Rein lokal - macht KEINEN API-Aufruf an Wallos. Die Daten
+  /// im Wallos-Webinterface bleiben davon vollständig unberührt.
+  Future<void> clearAllLocalData() async {
+    print('[CRUD] Lösche alle lokalen Abos (Account-/Server-Wechsel)');
+    await _db.deleteAllSubscriptions();
   }
 
   /// Gets all pending changes (not synced)
@@ -59,11 +71,6 @@ class SubscriptionCrudService {
   /// Gets count of pending changes
   Future<int> getPendingChangesCount() async {
     return await _db.getPendingChangesCount();
-  }
-
-  /// Marks all changes as synced
-  Future<void> markAllAsSynced() async {
-    await _db.markAllAsSynced();
   }
 
   /// Marks a subscription as synced

@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/subscription_provider.dart';
 import 'widgets/gradient_card.dart';
 import 'widgets/compact_list_card.dart';
-import 'app_theme.dart';
 
 class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
@@ -38,8 +37,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     _midnightTimer = Timer(durationUntilMidnight, () {
       if (mounted) {
         // Refresh Dashboard bei Mitternacht
-        // ignore: unused_result
-        ref.refresh(subscriptionProvider);
+        ref.invalidate(subscriptionProvider);
         
         // Plane nächsten Refresh ein
         _scheduleMidnightRefresh();
@@ -79,6 +77,77 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     }
   }
   
+  /// Rechnet ein Zahlungsdatum um [steps] Zahlungsintervalle (cycle/frequency
+  /// des Abos) weiter (steps > 0) oder zurück (steps < 0).
+  DateTime _shiftByCycle(DateTime date, int cycle, int frequency, int steps) {
+    final freq = frequency > 0 ? frequency : 1;
+    switch (cycle) {
+      case 1: // täglich
+        return date.add(Duration(days: freq * steps));
+      case 2: // wöchentlich
+        return date.add(Duration(days: 7 * freq * steps));
+      case 4: // jährlich
+        return DateTime(date.year + freq * steps, date.month, date.day);
+      case 3: // monatlich
+      default:
+        final totalMonths = (date.year * 12 + (date.month - 1)) + freq * steps;
+        final newYear = totalMonths ~/ 12;
+        final newMonth = totalMonths % 12 + 1;
+        // Tag beibehalten, aber auf den letzten Tag des Zielmonats begrenzen
+        // (z.B. 31. Januar -> 28./29. Februar)
+        final daysInNewMonth = DateTime(newYear, newMonth + 1, 0).day;
+        final newDay = date.day > daysInNewMonth ? daysInNewMonth : date.day;
+        return DateTime(newYear, newMonth, newDay);
+    }
+  }
+
+  /// Summiert die tatsächlich fälligen Beträge aller Abos, die im
+  /// Kalendermonat [year]-[month] abgerechnet werden. Anders als eine reine
+  /// Durchschnittsrechnung (siehe [_priceToMonthly]) werden dabei die
+  /// tatsächlichen Zahlungstermine (ausgehend vom gespeicherten
+  /// "nächste Zahlung"-Datum, im Rhythmus von cycle/frequency vor- und
+  /// zurückgerechnet) betrachtet - inklusive mehrerer Termine pro Monat bei
+  /// täglichem/wöchentlichem Rhythmus.
+  double _costForMonth(List subscriptions, int year, int month) {
+    final monthStart = DateTime(year, month, 1);
+    final monthEnd = DateTime(year, month + 1, 1); // exklusiv
+
+    double total = 0;
+    for (var sub in subscriptions) {
+      final nextPayment = DateTime.tryParse(sub.nextPayment);
+      if (nextPayment == null) continue;
+
+      if (sub.cycle == 5) {
+        // Einmalig: keine Wiederholung
+        if (!nextPayment.isBefore(monthStart) && nextPayment.isBefore(monthEnd)) {
+          total += sub.price;
+        }
+        continue;
+      }
+
+      // Ausgehend vom gespeicherten Zahlungstermin zunächst zurückrechnen,
+      // bis wir vor dem Zielmonat liegen ...
+      var occurrence = nextPayment;
+      var safety = 0;
+      while (occurrence.isAfter(monthStart) && safety < 500) {
+        occurrence = _shiftByCycle(occurrence, sub.cycle, sub.frequency, -1);
+        safety++;
+      }
+      // ... und dann vorwärts alle Termine aufsummieren, die in den
+      // Zielmonat fallen (kann bei täglich/wöchentlich mehrfach zutreffen).
+      safety = 0;
+      while (occurrence.isBefore(monthEnd) && safety < 500) {
+        if (!occurrence.isBefore(monthStart)) {
+          total += sub.price;
+        }
+        occurrence = _shiftByCycle(occurrence, sub.cycle, sub.frequency, 1);
+        safety++;
+      }
+    }
+
+    return total;
+  }
+
   /// Baut den Monatlichen Vergleich (diesen vs nächsten Monat) Widget
   Widget _buildMonthlyComparison(BuildContext context, List subscriptions) {
     final today = DateTime.now();
@@ -86,40 +155,13 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     final currentYear = today.year;
     final nextMonth = currentMonth == 12 ? 1 : currentMonth + 1;
     final nextYear = currentMonth == 12 ? currentYear + 1 : currentYear;
-    
-    // Berechne Ausgaben für diesen Monat
-    double currentMonthTotal = 0;
-    double nextMonthTotal = 0;
-    
-    for (var sub in subscriptions) {
-      final paymentDate = DateTime.tryParse(sub.nextPayment);
-      if (paymentDate == null) continue;
-      
-      // Preis zum Monat hinzufügen wenn Zahlung in diesem Monat oder jähnlich erfolgt
-      final monthlyPrice = _priceToMonthly(sub.price, sub.cycle);
-      
-      // Vereinfachte Logik: Wenn nächste Zahlung im aktuellen Monat, zähle alle bis Ende Monat
-      if (paymentDate.month == currentMonth && paymentDate.year == currentYear) {
-        currentMonthTotal += monthlyPrice;
-      } else if (paymentDate.month == nextMonth && paymentDate.year == nextYear) {
-        nextMonthTotal += monthlyPrice;
-      }
-    }
-    
-    // Falls Berechnung leer, nutze monatliche Ausgaben als Fallback
-    if (currentMonthTotal == 0) {
-      currentMonthTotal = subscriptions.fold(
-        0.0,
-        (sum, sub) => sum + _priceToMonthly(sub.price, sub.cycle),
-      );
-    }
-    if (nextMonthTotal == 0) {
-      nextMonthTotal = subscriptions.fold(
-        0.0,
-        (sum, sub) => sum + _priceToMonthly(sub.price, sub.cycle),
-      );
-    }
-    
+
+    // Tatsächlich fällige Beträge für diesen und nächsten Kalendermonat
+    // (basierend auf den echten Zahlungsterminen, nicht auf dem
+    // amortisierten Monatsdurchschnitt).
+    final currentMonthTotal = _costForMonth(subscriptions, currentYear, currentMonth);
+    final nextMonthTotal = _costForMonth(subscriptions, nextYear, nextMonth);
+
     final monthNames = ['', 'Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
     final currentMonthName = monthNames[currentMonth];
     final nextMonthName = monthNames[nextMonth];
@@ -249,8 +291,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
 
     return RefreshIndicator(
       onRefresh: () async {
-        // ignore: unused_result
-        ref.refresh(subscriptionProvider);
+        ref.invalidate(subscriptionProvider);
         return Future.value();
       },
       child: subAsync.when(

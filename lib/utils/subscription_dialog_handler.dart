@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/subscription.dart';
 import '../services/subscription_crud_service.dart';
-import '../providers/subscription_provider.dart';
-import '../providers/sync_provider.dart';
+import 'sync_helper.dart';
 import '../widgets/subscription_form_dialog.dart';
 
 /// Hilfsklasse für alle Dialog-Operationen (Add/Edit/Delete)
@@ -14,8 +13,6 @@ class SubscriptionDialogHandler {
   static void showAddDialog(
     BuildContext context,
     WidgetRef ref,
-    String baseUrl,
-    String apiKey,
   ) {
     showDialog(
       context: context,
@@ -47,13 +44,12 @@ class SubscriptionDialogHandler {
               _handleLocalSuccess(
                 context: context,
                 dialogContext: dialogContext,
-                ref: ref,
                 message: 'Abo gespeichert. Synchronisiere...',
               );
             }
 
             // 4. Automatisch mit der Wallos-API synchronisieren
-            _autoSync(context, ref);
+            SyncHelper.refreshAndSync(context, ref);
           } catch (e) {
             print('Fehler beim lokalen Speichern: $e');
             _handleDialogError(
@@ -71,7 +67,6 @@ class SubscriptionDialogHandler {
   static void _handleLocalSuccess({
     required BuildContext context,
     required BuildContext dialogContext,
-    required WidgetRef ref,
     required String message,
   }) {
     if (dialogContext.mounted) {
@@ -86,44 +81,6 @@ class SubscriptionDialogHandler {
           backgroundColor: Colors.orange.shade700,
         ),
       );
-    }
-
-    // Refresh der UI aus lokaler DB
-    // ignore: unused_result
-    ref.refresh(subscriptionProvider);
-    // Refresh der Sync-Anzeige
-    // ignore: unused_result
-    ref.refresh(pendingChangesCountProvider);
-  }
-
-  /// Synchronisiert automatisch mit der Wallos-API und zeigt das Ergebnis an
-  static Future<void> _autoSync(BuildContext context, WidgetRef ref) async {
-    try {
-      final result = await ref.refresh(syncProvider.future);
-
-      // Refresh der UI nach dem Sync
-      // ignore: unused_result
-      ref.refresh(subscriptionProvider);
-      // ignore: unused_result
-      ref.refresh(pendingChangesCountProvider);
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.message),
-            backgroundColor: result.success ? Colors.green.shade700 : Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      print('[AutoSync] Fehler beim automatischen Sync: $e');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync fehlgeschlagen: $e'), backgroundColor: Colors.red),
-        );
-      }
     }
   }
 

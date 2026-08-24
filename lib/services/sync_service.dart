@@ -66,6 +66,45 @@ class SyncService {
 
       for (var sub in pending) {
         try {
+          // Vorgemerkte Löschungen (Offline-First für "Löschen") werden
+          // separat behandelt: statt add/edit wird die "delete"-Aktion an
+          // die API geschickt und die Zeile erst NACH Bestätigung wirklich
+          // aus der lokalen DB entfernt.
+          if (sub.pendingDelete == 1) {
+            if (sub.remoteId == null) {
+              // Sollte nicht vorkommen (nie synced -> sofort hart gelöscht),
+              // sicherheitshalber trotzdem lokal aufräumen.
+              await _crudService.deleteSubscription(sub.id);
+              successCount++;
+              continue;
+            }
+
+            print('[SYNC] Versuche Löschung für: ${sub.name} (Remote ID: ${sub.remoteId})');
+            final response = await _deleteSubscriptionWithResponse(
+              baseUrl: url,
+              apiKey: token,
+              remoteId: sub.remoteId,
+            );
+
+            if (response.statusCode == 200) {
+              final data = json.decode(response.body);
+              if (data['success'] == true) {
+                await _crudService.deleteSubscription(sub.id);
+                successCount++;
+                print('[SYNC] ✓ ${sub.name} erfolgreich gelöscht');
+              } else {
+                failCount++;
+                lastErrorMessage = data['title'] ?? 'API Fehler';
+                print('[SYNC] ✗ Löschen von ${sub.name} fehlgeschlagen: $lastErrorMessage');
+              }
+            } else {
+              failCount++;
+              lastErrorMessage = 'Server Status: ${response.statusCode}';
+              print('[SYNC] ✗ Löschen von ${sub.name} fehlgeschlagen: $lastErrorMessage');
+            }
+            continue;
+          }
+
           print('[SYNC] Versuche Upload für: ${sub.name} (Local ID: ${sub.id}, Remote ID: ${sub.remoteId})');
           final response = await _uploadSubscriptionWithResponse(
             baseUrl: url,
@@ -130,7 +169,17 @@ class SyncService {
   }) async {
     final url = '$baseUrl/api/subscriptions/set_subscriptions.php';
 
-    // Sicherstellen, dass alle Werte als Strings vorhanden sind
+    // Sicherstellen, dass alle Werte als Strings vorhanden sind.
+    //
+    // WICHTIG: "category_id", "payment_method_id" und "payer_user_id" sind
+    // laut Wallos-API optionale Felder, die (falls angegeben) streng gegen
+    // die Tabellen der Kategorien/Zahlungsmethoden/Haushaltsmitglieder DES
+    // AKTUELLEN Nutzers geprüft werden ("WHERE id = :id AND user_id = :userId").
+    // Ein erfundener Platzhalter-Wert wie "1" schlägt fehl, sobald dieser
+    // Datensatz beim jeweiligen Wallos-Nutzer nicht existiert (z.B. "Invalid
+    // payer ID"). Deshalb werden diese Felder nur mitgeschickt, wenn wir
+    // einen tatsächlich bekannten Wert haben - beim "edit" behält Wallos den
+    // bisherigen Wert bei, wenn das Feld gar nicht im Request enthalten ist.
     final body = {
       'api_key': apiKey,
       'action': subscription.remoteId == null ? 'add' : 'edit',
@@ -138,12 +187,11 @@ class SyncService {
       'name': subscription.name.toString(),
       'price': subscription.price.toString(),
       'currency_id': (subscription.currencyId ?? 1).toString(),
-      'category_id': (subscription.categoryId ?? 1).toString(),
-      'payment_method_id': (subscription.paymentMethodId ?? 1).toString(),
+      if (subscription.categoryId != null) 'category_id': subscription.categoryId.toString(),
+      if (subscription.paymentMethodId != null) 'payment_method_id': subscription.paymentMethodId.toString(),
       'frequency': (subscription.frequency ?? 1).toString(),
       'cycle': (subscription.cycle ?? 1).toString(),
       'inactive': (subscription.inactive ?? 0).toString(),
-      'payer_user_id': '1',
       'auto_renew': 'on',
       'start_date': DateTime.now().toString().split(' ')[0],
       if (subscription.nextPayment != null && subscription.nextPayment.isNotEmpty) 
@@ -167,6 +215,28 @@ class SyncService {
         fileName: preparedLogo.filename,
       );
     }
+
+    return await http.post(
+      Uri.parse(url),
+      body: body,
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    ).timeout(const Duration(seconds: 15));
+  }
+
+  /// Hilfsfunktion: Löscht ein Abo auf der API (für vorgemerkte Löschungen)
+  Future<http.Response> _deleteSubscriptionWithResponse({
+    required String baseUrl,
+    required String apiKey,
+    required int remoteId,
+  }) async {
+    final url = '$baseUrl/api/subscriptions/set_subscriptions.php';
+    final body = {
+      'api_key': apiKey,
+      'action': 'delete',
+      'id': remoteId.toString(),
+    };
+
+    print('[SYNC] Sende Lösch-POST an $url für Remote ID $remoteId');
 
     return await http.post(
       Uri.parse(url),

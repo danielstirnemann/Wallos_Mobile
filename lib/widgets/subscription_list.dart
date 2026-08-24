@@ -1,45 +1,71 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import '../models/subscription.dart';
 import '../services/subscription_crud_service.dart';
-import '../providers/subscription_crud_provider.dart';
-import '../providers/subscription_provider.dart';
+import '../utils/sync_helper.dart';
+import 'safe_svg_logo.dart';
 import 'subscription_form_dialog.dart';
 
 class SubscriptionList extends ConsumerWidget {
   final List<Subscription> subscriptions;
-  final String baseUrl;
-  final String apiKey;
-  final RefreshCallback onRefresh;
 
   const SubscriptionList({
     super.key,
     required this.subscriptions,
-    required this.baseUrl,
-    required this.apiKey,
-    required this.onRefresh,
   });
 
+  /// Erstellt eine Kopie von [subscription] mit angepassten Feldern.
+  /// Wird für Toggle/Edit benötigt, da [Subscription] unveränderlich ist.
+  Subscription _copyWith(
+    Subscription subscription, {
+    String? name,
+    double? price,
+    int? cycle,
+    int? frequency,
+    int? currencyId,
+    int? categoryId,
+    int? paymentMethodId,
+    int? inactive,
+    String? nextPayment,
+    String? logoUrl,
+  }) {
+    return Subscription(
+      id: subscription.id,
+      remoteId: subscription.remoteId,
+      name: name ?? subscription.name,
+      price: price ?? subscription.price,
+      cycle: cycle ?? subscription.cycle,
+      frequency: frequency ?? subscription.frequency,
+      currencyId: currencyId ?? subscription.currencyId,
+      categoryId: categoryId ?? subscription.categoryId,
+      paymentMethodId: paymentMethodId ?? subscription.paymentMethodId,
+      inactive: inactive ?? subscription.inactive,
+      nextPayment: nextPayment ?? subscription.nextPayment,
+      icon: subscription.icon,
+      logoUrl: logoUrl ?? subscription.logoUrl,
+    );
+  }
+
+  /// Aktiviert/Deaktiviert ein Abo. Offline-First: die Änderung wird zuerst
+  /// LOKAL gespeichert (synced=0), danach wird im Hintergrund synchronisiert.
   void _toggleStatus(BuildContext context, WidgetRef ref, Subscription subscription) async {
     try {
-      final result = await SubscriptionCrudProvider.toggleInactiveStatus(
-        baseUrl: baseUrl,
-        apiKey: apiKey,
-        id: subscription.id,
-        currentInactiveStatus: subscription.inactive,
+      final updated = _copyWith(
+        subscription,
+        inactive: subscription.inactive == 0 ? 1 : 0,
       );
-      
+
+      await SubscriptionCrudService().editSubscription(updated);
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['message'])),
+          SnackBar(
+            content: Text(updated.inactive == 0 ? 'Abo aktiviert' : 'Abo deaktiviert'),
+            backgroundColor: Colors.orange.shade700,
+          ),
         );
-        
-        if (result['success']) {
-          // ignore: unused_result
-          ref.refresh(subscriptionProvider);
-        }
+        await SyncHelper.refreshAndSync(context, ref);
       }
     } catch (e) {
       if (context.mounted) {
@@ -58,38 +84,38 @@ class SubscriptionList extends ConsumerWidget {
         subscription: subscription,
         onSave: (data) async {
           try {
-            final result = await SubscriptionCrudProvider.editSubscription(
-              baseUrl: baseUrl,
-              apiKey: apiKey,
-              id: subscription.id,
+            // Offline-First: Änderung zuerst LOKAL speichern (synced=0),
+            // danach im Hintergrund mit der Wallos-API synchronisieren.
+            final updated = _copyWith(
+              subscription,
               name: data['name'],
               price: data['price'],
-              currencyId: data['currency_id'],
               cycle: data['cycle'],
-              frequency: data['frequency'],
-              nextPayment: data['next_payment'],
+              frequency: data['frequency'] ?? 1,
+              currencyId: data['currency_id'],
               categoryId: data['category_id'] as int?,
               paymentMethodId: data['payment_method_id'] as int?,
+              nextPayment: data['next_payment'],
               logoUrl: data['logo_url'],
             );
-            
+
+            await SubscriptionCrudService().editSubscription(updated);
+
             // Dialog schließen ZUERST
             if (dialogContext.mounted) {
               Navigator.of(dialogContext).pop();
             }
-            
-            // Dann SnackBar
+
+            // Dann SnackBar + Sync im Hintergrund anstoßen
             if (context.mounted) {
               ScaffoldMessenger.of(context).clearSnackBars();
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(result['message'])),
+                const SnackBar(
+                  content: Text('Abo aktualisiert. Synchronisiere...'),
+                  backgroundColor: Colors.orange,
+                ),
               );
-            }
-            
-            // Dann Refresh
-            if (result['success']) {
-              // ignore: unused_result
-              ref.refresh(subscriptionProvider);
+              await SyncHelper.refreshAndSync(context, ref);
             }
           } catch (e) {
             if (dialogContext.mounted) {
@@ -122,28 +148,29 @@ class SubscriptionList extends ConsumerWidget {
             onPressed: () async {
               Navigator.pop(dialogContext);
               try {
-                // Nutze remoteId für den API-Call (Wallos ID)
-                // Falls remoteId null ist, lösche nur lokal
+                final crud = SubscriptionCrudService();
+
                 if (subscription.remoteId != null) {
-                  final result = await SubscriptionCrudProvider.deleteSubscription(
-                    baseUrl: baseUrl,
-                    apiKey: apiKey,
-                    id: subscription.remoteId!,
-                  );
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(result['message'])),
-                    );
-                  }
+                  // Bereits synchronisiert: Offline-First -> nur zur
+                  // Löschung vormerken. Die eigentliche Löschung auf dem
+                  // Server erfolgt beim nächsten (Auto-)Sync, damit das
+                  // Löschen auch ohne Internetverbindung funktioniert.
+                  await crud.markForDeletion(subscription.id);
+                } else {
+                  // Noch nie synchronisiert -> der Server weiß nichts davon,
+                  // daher kann sofort hart gelöscht werden.
+                  await crud.deleteSubscription(subscription.id);
                 }
-                
-                // Lösche IMMER auch lokal
-                final db = SubscriptionCrudService();
-                await db.deleteSubscription(subscription.id);
-                
+
                 if (context.mounted) {
-                  // ignore: unused_result
-                  ref.refresh(subscriptionProvider);
+                  ScaffoldMessenger.of(context).clearSnackBars();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Abo gelöscht. Synchronisiere...'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  await SyncHelper.refreshAndSync(context, ref);
                 }
               } catch (e) {
                 if (context.mounted) {
@@ -178,12 +205,11 @@ class SubscriptionList extends ConsumerWidget {
               padding: const EdgeInsets.all(8),
               child: item.logoUrl != null
                   ? (item.logoUrl!.endsWith('.svg')
-                      ? SvgPicture.network(
-                          item.logoUrl!,
-                          fit: BoxFit.contain,
-                          placeholderBuilder: (context) => const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
+                      ? SafeSvgLogo(
+                          key: ValueKey(item.logoUrl),
+                          url: item.logoUrl!,
+                          color: Colors.grey[700]!,
+                          fallbackLetter: item.name.isNotEmpty ? item.name.substring(0, 1).toUpperCase() : '?',
                         )
                       : Image.network(
                           item.logoUrl!,

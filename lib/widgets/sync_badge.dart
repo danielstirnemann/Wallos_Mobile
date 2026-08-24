@@ -133,7 +133,7 @@ class _SyncButtonState extends ConsumerState<SyncButton> {
 
       if (mounted) {
         // Refresh pending count
-        ref.refresh(pendingChangesCountProvider);
+        ref.invalidate(pendingChangesCountProvider);
 
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/subscription.dart';
+import '../providers/default_subscription_settings_provider.dart';
 import '../providers/meta_provider.dart';
 import '../services/logo_service.dart';
 import 'logo_picker_dialog.dart';
@@ -30,20 +31,40 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
   int? _selectedPaymentMethod;
   late int _selectedCycle;
   late int _selectedFrequency;
-  
+
+  // Verhindert, dass der konfigurierte Standard-Zyklus bei jedem Rebuild
+  // erneut angewendet wird (z.B. nachdem der Nutzer den Zyklus manuell
+  // geändert hat). Nur relevant beim Hinzufügen eines NEUEN Abos.
+  bool _appliedConfiguredCycleDefault = false;
+
   LogoItem? _selectedLogoItem;
-  final _logoService = LogoService();
 
   @override
   void initState() {
     super.initState();
-    _selectedCycle = 1; // 1 = Monatlich
-    _selectedFrequency = 1;
-    
-    _nameController = TextEditingController(text: widget.subscription?.name ?? '');
-    _priceController = TextEditingController(text: widget.subscription?.price.toString() ?? '');
+    final existing = widget.subscription;
+
+    // Zyklus-IDs entsprechen der Wallos-API: 1=täglich, 2=wöchentlich,
+    // 3=monatlich, 4=jährlich, 5=einmalig.
+    //
+    // WICHTIG: Beim Bearbeiten eines bestehenden Abos müssen Zyklus,
+    // Häufigkeit, Währung, Kategorie und Zahlungsmethode mit den
+    // vorhandenen Werten vorbefüllt werden - sonst würde beim Speichern
+    // (auch ohne dass der Nutzer diese Felder anfasst) stillschweigend
+    // wieder auf den Standardwert zurückgesetzt (z.B. ein jährliches Abo
+    // würde beim nächsten Bearbeiten plötzlich "Monatlich").
+    _selectedCycle = existing?.cycle ?? 3; // 3 = Monatlich (Standard für neue Abos)
+    _selectedFrequency = existing?.frequency ?? 1;
+    _selectedCurrency = existing?.currencyId;
+    _selectedCategory = existing?.categoryId;
+    _selectedPaymentMethod = existing?.paymentMethodId;
+
+    _nameController = TextEditingController(text: existing?.name ?? '');
+    _priceController = TextEditingController(text: existing?.price.toString() ?? '');
     _nextPaymentController = TextEditingController(
-      text: DateTime.now().toString().split(' ')[0]
+      text: (existing != null && existing.nextPayment.isNotEmpty)
+          ? existing.nextPayment
+          : DateTime.now().toString().split(' ')[0],
     );
 
     // Beim Hinzufügen eines neuen Abos soll primär zuerst ein Logo gewählt
@@ -125,20 +146,48 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
   @override
   Widget build(BuildContext context) {
     final metaAsync = ref.watch(metaDataProvider);
+    final isAdding = widget.subscription == null;
+    // Nur beim Hinzufügen eines neuen Abos relevant - die in den
+    // Einstellungen konfigurierten Standardwerte.
+    final configuredDefaults = isAdding
+        ? ref.watch(defaultSubscriptionSettingsProvider).value
+        : null;
 
     return AlertDialog(
-      title: Text(widget.subscription == null ? 'Abo hinzufügen' : 'Abo bearbeiten'),
+      title: Text(isAdding ? 'Abo hinzufügen' : 'Abo bearbeiten'),
       content: metaAsync.when(
         data: (meta) {
-          // Setze Standardwerte, falls noch nichts ausgewählt ist
-          if (_selectedCurrency == null && meta.currencies.isNotEmpty) {
-            _selectedCurrency = meta.currencies.first.id;
+          // Setze Standardwerte, falls noch nichts ausgewählt ist. Beim
+          // Hinzufügen wird bevorzugt der in den Einstellungen konfigurierte
+          // Standard verwendet (sofern er noch existiert), sonst der erste
+          // verfügbare Eintrag.
+          if (_selectedCurrency == null) {
+            final preferred = configuredDefaults?.currencyId;
+            if (preferred != null && meta.currencies.any((c) => c.id == preferred)) {
+              _selectedCurrency = preferred;
+            } else if (meta.currencies.isNotEmpty) {
+              _selectedCurrency = meta.currencies.first.id;
+            }
           }
-          if (_selectedCategory == null && meta.categories.isNotEmpty) {
-            _selectedCategory = meta.categories.first.id;
+          if (_selectedCategory == null) {
+            final preferred = configuredDefaults?.categoryId;
+            if (preferred != null && meta.categories.any((c) => c.id == preferred)) {
+              _selectedCategory = preferred;
+            } else if (meta.categories.isNotEmpty) {
+              _selectedCategory = meta.categories.first.id;
+            }
           }
-          if (_selectedPaymentMethod == null && meta.paymentMethods.isNotEmpty) {
-            _selectedPaymentMethod = meta.paymentMethods.first.id;
+          if (_selectedPaymentMethod == null) {
+            final preferred = configuredDefaults?.paymentMethodId;
+            if (preferred != null && meta.paymentMethods.any((pm) => pm.id == preferred)) {
+              _selectedPaymentMethod = preferred;
+            } else if (meta.paymentMethods.isNotEmpty) {
+              _selectedPaymentMethod = meta.paymentMethods.first.id;
+            }
+          }
+          if (isAdding && !_appliedConfiguredCycleDefault && configuredDefaults != null) {
+            _selectedCycle = configuredDefaults.cycle;
+            _appliedConfiguredCycleDefault = true;
           }
 
           return SingleChildScrollView(
@@ -267,12 +316,13 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
                     border: OutlineInputBorder(),
                   ),
                   items: const [
-                    DropdownMenuItem(value: 1, child: Text('Monatlich')),
-                    DropdownMenuItem(value: 3, child: Text('Vierteljährlich')),
-                    DropdownMenuItem(value: 4, child: Text('Halbjährlich')),
-                    DropdownMenuItem(value: 5, child: Text('Jährlich')),
+                    DropdownMenuItem(value: 1, child: Text('Täglich')),
+                    DropdownMenuItem(value: 2, child: Text('Wöchentlich')),
+                    DropdownMenuItem(value: 3, child: Text('Monatlich')),
+                    DropdownMenuItem(value: 4, child: Text('Jährlich')),
+                    DropdownMenuItem(value: 5, child: Text('Einmalig')),
                   ],
-                  onChanged: (value) => setState(() => _selectedCycle = value ?? 1),
+                  onChanged: (value) => setState(() => _selectedCycle = value ?? 3),
                 ),
                 const SizedBox(height: 16),
                 TextField(
