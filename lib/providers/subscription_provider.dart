@@ -2,47 +2,62 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/subscription.dart';
 import '../database/app_database.dart';
+import '../services/wallos_settings_service.dart';
 
 /// FutureProvider - Lädt Abos von API oder lokal aus der Datenbank
-final subscriptionProvider = FutureProvider<List<Subscription>>((ref) async {
-  final prefs = await SharedPreferences.getInstance();
-  var url = (prefs.getString('wallos_api_url') ?? '').trim();
-  final token = (prefs.getString('wallos_api_token') ?? '').trim();
+final subscriptionProvider = FutureProvider<List<Subscription>>(
+  (ref) async {
+    final creds = await WallosSettingsService.loadSettings();
+    var url = creds.url.trim();
+    final token = creds.token.trim();
 
-  // Wenn API-Credentials vorhanden sind, versuche von API zu laden
-  if (url.isNotEmpty && token.isNotEmpty) {
-    try {
-      final apiSubs = await _fetchFromAPI(url, token);
-      print('[Provider] ${apiSubs.length} Abos von API geladen und lokal gespeichert');
-      
-      // WICHTIG: Lade jetzt ALLES aus der lokalen Datenbank
-      // Dadurch erhalten wir die korrekten lokalen IDs für das Löschen/Bearbeiten
-      final db = AppDatabase();
-      final locals = await db.getAllActiveSubscriptions();
-      final allMapped = _convertEntitiesToSubscriptions(locals);
-      
-      print('[Provider] ${allMapped.length} Abos aus DB nach API-Sync geladen');
-      return allMapped;
-    } catch (e) {
-      print('API-Fehler: $e - Nutze lokale Datenbank als Fallback');
+    // Wenn API-Credentials vorhanden sind, versuche von API zu laden
+    if (url.isNotEmpty && token.isNotEmpty) {
+      try {
+        final apiSubs = await _fetchFromAPI(url, token);
+        print('[Provider] ${apiSubs.length} Abos von API geladen und lokal gespeichert');
+
+        // WICHTIG: Lade jetzt ALLES aus der lokalen Datenbank
+        // Dadurch erhalten wir die korrekten lokalen IDs für das Löschen/Bearbeiten
+        final db = AppDatabase();
+        final locals = await db.getAllActiveSubscriptions();
+        final allMapped = _convertEntitiesToSubscriptions(locals);
+
+        print('[Provider] ${allMapped.length} Abos aus DB nach API-Sync geladen');
+        return allMapped;
+      } catch (e) {
+        print('API-Fehler: $e - Nutze lokale Datenbank als Fallback');
+      }
     }
-  }
 
-  // Fallback: Lade von lokaler Datenbank
-  print('Lade Abos aus lokaler Datenbank...');
-  final db = AppDatabase();
-  final locals = await db.getAllActiveSubscriptions();
-  
-  if (locals.isEmpty) {
-    throw Exception('Keine Abos vorhanden. Bitte API-Daten eingeben oder Abos hinzufügen.');
-  }
-  
-  // Konvertiere lokale Entities zu Subscription Models
-  return _convertEntitiesToSubscriptions(locals);
-});
+    // Fallback: Lade von lokaler Datenbank
+    print('Lade Abos aus lokaler Datenbank...');
+    final db = AppDatabase();
+    final locals = await db.getAllActiveSubscriptions();
+
+    // WICHTIG: Weder Wallos-Zugangsdaten NOCH lokal zwischengespeicherte Abos
+    // vorhanden ist der normale Zustand direkt nach der Erstinstallation -
+    // die App funktioniert bewusst auch komplett OHNE Wallos-Verbindung.
+    // Es wird daher KEIN Fehler geworfen, sondern einfach eine leere Liste
+    // zurückgegeben - Dashboard und Abo-Liste zeigen dadurch ganz normal
+    // ihren "leer"-Zustand (0 CHF, keine anstehenden Zahlungen, ...) statt
+    // eines blockierenden Hinweisbildschirms.
+
+    // Konvertiere lokale Entities zu Subscription Models
+    return _convertEntitiesToSubscriptions(locals);
+  },
+  // WICHTIG: Riverpod versucht standardmäßig, einen fehlgeschlagenen Provider
+  // automatisch mit exponentiellem Backoff bis zu 8x erneut auszuführen
+  // (200ms, 400ms, 800ms, ... bis ~6-7s gedeckelt). Das ist bei ECHTEN
+  // transienten Fehlern (z.B. kurzer Netzwerkaussetzer) sinnvoll - genau
+  // dieser Fall wird hier oben aber bereits selbst per try/catch abgefangen
+  // und fällt auf die lokale DB zurück, OHNE eine Exception zu werfen. Da
+  // dieser Provider inzwischen nie mehr wirft, greift dieser Opt-out aktuell
+  // nur zur Sicherheit für zukünftige Änderungen.
+  retry: (retryCount, error) => null,
+);
 
 /// Hilfsfunktion: Fetch von API
 Future<List<Subscription>> _fetchFromAPI(String url, String token) async {
@@ -114,10 +129,12 @@ List<Subscription> _convertEntitiesToSubscriptions(List<dynamic> entities) {
         currencyId: entity.currencyId,
         categoryId: entity.categoryId,
         paymentMethodId: entity.paymentMethodId,
+        payerUserId: entity.payerUserId,
         inactive: entity.inactive,
         nextPayment: entity.nextPayment,
         icon: Icons.shopping_bag,
         logoUrl: entity.logoUrl,
+        logoHex: entity.logoHex,
       );
     }
     return entity as Subscription;

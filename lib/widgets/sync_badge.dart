@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/sync_provider.dart';
 import '../services/sync_service.dart';
+import 'sync_failures_dialog.dart';
 
 /// Sync-Badge mit Sync-Button für AppBar
 class SyncBadge extends ConsumerWidget {
@@ -143,6 +144,13 @@ class _SyncButtonState extends ConsumerState<SyncButton> {
             duration: const Duration(seconds: 2),
           ),
         );
+
+        // Falls einzelne Abos nicht synchronisiert werden konnten, zeige
+        // einen Dialog, in dem der Nutzer pro Abo entscheiden kann, ob die
+        // Änderung lokal verworfen oder der Sync erneut versucht werden soll.
+        if (result.failures.isNotEmpty) {
+          await SyncFailuresDialog.show(context, result.failures);
+        }
       }
     } catch (e) {
       if (mounted) {

@@ -5,7 +5,9 @@ import 'utils/subscription_dialog_handler.dart';
 import 'widgets/subscription_list.dart';
 
 class SubscriptionPage extends ConsumerStatefulWidget {
-  const SubscriptionPage({super.key});
+  final VoidCallback? onGoToSettings;
+
+  const SubscriptionPage({super.key, this.onGoToSettings});
 
   @override
   ConsumerState<SubscriptionPage> createState() => _SubscriptionPageState();
@@ -73,10 +75,18 @@ class _SubscriptionPageState extends ConsumerState<SubscriptionPage> {
               IconButton(
                 icon: const Icon(Icons.add),
                 tooltip: 'Abo hinzufügen',
-                onPressed: () => SubscriptionDialogHandler.showAddDialog(
-                  context,
-                  ref,
-                ),
+                // WICHTIG: Die Wallos-Verbindung ist komplett optional - Abos
+                // können jederzeit rein lokal angelegt werden (siehe
+                // defaultLocalCurrencies/defaultLocalCategories im
+                // "Abo hinzufügen"-Dialog). Hier darf daher KEINE Blockade
+                // mehr erfolgen, nur weil (noch) keine Wallos-Verbindung
+                // eingerichtet ist.
+                onPressed: () {
+                  SubscriptionDialogHandler.showAddDialog(
+                    context,
+                    ref,
+                  );
+                },
               ),
             ],
           ),
@@ -102,7 +112,7 @@ class _SubscriptionPageState extends ConsumerState<SubscriptionPage> {
                         sub.name.toLowerCase().contains(_searchQuery))
                     .toList();
 
-                // Zeige "Keine Ergebnisse" wenn leer
+                // Zeige "Keine Ergebnisse" wenn leer UND gesucht wird
                 if (filteredSubscriptions.isEmpty && _searchQuery.isNotEmpty) {
                   return ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -131,20 +141,67 @@ class _SubscriptionPageState extends ConsumerState<SubscriptionPage> {
                   );
                 }
 
+                // Zeige eine freundliche Leer-Ansicht, wenn (unabhängig von
+                // Wallos) schlicht noch KEIN Abo angelegt wurde - z.B. direkt
+                // nach der Erstinstallation.
+                if (filteredSubscriptions.isEmpty) {
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.6,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _showInactive ? Icons.visibility_off : Icons.receipt_long,
+                                size: 64,
+                                color: Colors.grey[400],
+                              ),
+                              const SizedBox(height: 20),
+                              Text(
+                                _showInactive
+                                    ? 'Keine inaktiven Abos vorhanden'
+                                    : 'Noch keine Abos vorhanden',
+                                style: Theme.of(context).textTheme.titleMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                              if (!_showInactive) ...[
+                                const SizedBox(height: 8),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                                  child: Text(
+                                    'Tippe oben rechts auf "+", um dein erstes Abo hinzuzufügen.',
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+
                 return SubscriptionList(
                   subscriptions: filteredSubscriptions,
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, stack) => ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  SizedBox(
-                    height: MediaQuery.of(context).size.height * 0.8,
-                    child: Center(child: Text('Fehler: $err')),
-                  ),
-                ],
-              ),
+              error: (err, stack) {
+                return ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.8,
+                      child: Center(child: Text('Fehler: $err')),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),

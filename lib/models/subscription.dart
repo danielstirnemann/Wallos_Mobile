@@ -10,10 +10,18 @@ class Subscription {
   final int? currencyId;
   final int? categoryId;
   final int? paymentMethodId;
+  final int? payerUserId;
   final int inactive;
   final String nextPayment;
   final IconData? icon;
   final String? logoUrl;
+
+  /// Marken-Hex-Farbe (z.B. "#E50914") des gewählten Simple-Icons-Logos.
+  /// Wird nur lokal verwendet, um das (monochrome) SVG in der richtigen
+  /// Farbe einzufärben - sowohl in der Anzeige als auch beim Hochladen
+  /// zur Wallos-API (siehe LogoUploadHelper). Die Wallos-API selbst kennt
+  /// dieses Feld nicht, daher ist es bei von der API geladenen Abos `null`.
+  final String? logoHex;
 
   Subscription({
     required this.id,
@@ -25,10 +33,12 @@ class Subscription {
     this.currencyId,
     this.categoryId,
     this.paymentMethodId,
+    this.payerUserId,
     required this.inactive,
     required this.nextPayment,
     this.icon,
     this.logoUrl,
+    this.logoHex,
   });
 
   factory Subscription.fromJson(Map<String, dynamic> json, {String baseUrl = ''}) {
@@ -59,6 +69,7 @@ class Subscription {
       currencyId: json['currency_id'] != null ? int.tryParse(json['currency_id'].toString()) : null,
       categoryId: json['category_id'] != null ? int.tryParse(json['category_id'].toString()) : null,
       paymentMethodId: json['payment_method_id'] != null ? int.tryParse(json['payment_method_id'].toString()) : null,
+      payerUserId: json['payer_user_id'] != null ? int.tryParse(json['payer_user_id'].toString()) : null,
       inactive: json['inactive'] != null ? int.tryParse(json['inactive'].toString()) ?? 0 : 0,
       nextPayment: json['next_payment'] ?? '',
       icon: Icons.shopping_bag,

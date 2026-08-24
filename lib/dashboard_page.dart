@@ -6,7 +6,9 @@ import 'widgets/gradient_card.dart';
 import 'widgets/compact_list_card.dart';
 
 class DashboardPage extends ConsumerStatefulWidget {
-  const DashboardPage({super.key});
+  final VoidCallback? onGoToSettings;
+
+  const DashboardPage({super.key, this.onGoToSettings});
 
   @override
   ConsumerState<DashboardPage> createState() => _DashboardPageState();
@@ -431,16 +433,18 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error, size: 48, color: Colors.red[300]),
-              const SizedBox(height: 16),
-              Text('Fehler beim Laden: $err'),
-            ],
-          ),
-        ),
+        error: (err, stack) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error, size: 48, color: Colors.red[300]),
+                const SizedBox(height: 16),
+                Text('Fehler beim Laden: $err'),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/subscription.dart';
 import '../services/subscription_crud_service.dart';
+import '../utils/hex_color.dart';
 import '../utils/sync_helper.dart';
 import 'safe_svg_logo.dart';
 import 'subscription_form_dialog.dart';
@@ -25,9 +26,11 @@ class SubscriptionList extends ConsumerWidget {
     int? currencyId,
     int? categoryId,
     int? paymentMethodId,
+    int? payerUserId,
     int? inactive,
     String? nextPayment,
     String? logoUrl,
+    String? logoHex,
   }) {
     return Subscription(
       id: subscription.id,
@@ -39,10 +42,12 @@ class SubscriptionList extends ConsumerWidget {
       currencyId: currencyId ?? subscription.currencyId,
       categoryId: categoryId ?? subscription.categoryId,
       paymentMethodId: paymentMethodId ?? subscription.paymentMethodId,
+      payerUserId: payerUserId ?? subscription.payerUserId,
       inactive: inactive ?? subscription.inactive,
       nextPayment: nextPayment ?? subscription.nextPayment,
       icon: subscription.icon,
       logoUrl: logoUrl ?? subscription.logoUrl,
+      logoHex: logoHex ?? subscription.logoHex,
     );
   }
 
@@ -95,8 +100,10 @@ class SubscriptionList extends ConsumerWidget {
               currencyId: data['currency_id'],
               categoryId: data['category_id'] as int?,
               paymentMethodId: data['payment_method_id'] as int?,
+              payerUserId: data['payer_user_id'] as int?,
               nextPayment: data['next_payment'],
               logoUrl: data['logo_url'],
+              logoHex: data['logo_hex'],
             );
 
             await SubscriptionCrudService().editSubscription(updated);
@@ -208,7 +215,7 @@ class SubscriptionList extends ConsumerWidget {
                       ? SafeSvgLogo(
                           key: ValueKey(item.logoUrl),
                           url: item.logoUrl!,
-                          color: Colors.grey[700]!,
+                          color: parseHexColor(item.logoHex) ?? Colors.grey[700]!,
                           fallbackLetter: item.name.isNotEmpty ? item.name.substring(0, 1).toUpperCase() : '?',
                         )
                       : Image.network(

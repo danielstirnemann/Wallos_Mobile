@@ -29,9 +29,11 @@ class SubscriptionDialogHandler {
               currencyId: data['currency_id'],
               categoryId: data['category_id'],
               paymentMethodId: data['payment_method_id'],
+              payerUserId: data['payer_user_id'],
               inactive: 0,
               nextPayment: data['next_payment'],
               logoUrl: data['logo_url'],
+              logoHex: data['logo_hex'],
             );
 
             // 2. LOKAL speichern (Offline-First)

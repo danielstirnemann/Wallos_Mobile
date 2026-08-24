@@ -86,7 +86,14 @@ class _HomePage extends StatelessWidget {
         actions: const [SyncBadge()],
       ),
       drawer: MainDrawer(onPageChanged: onPageChanged),
-      body: const DashboardPage(),
+      // WICHTIG: Scaffold entfernt zwar automatisch das TOP-Inset (wegen der
+      // AppBar), NICHT aber das BOTTOM-Inset der System-Navigationsleiste
+      // (z.B. Samsungs Geste/Zurück-Balken) - ohne SafeArea würde der
+      // untere Teil des Inhalts darunter verschwinden.
+      body: SafeArea(
+        top: false,
+        child: DashboardPage(onGoToSettings: () => onPageChanged(2)),
+      ),
     );
   }
 }
@@ -124,7 +131,10 @@ class _SubscriptionPageWrapper extends ConsumerWidget {
         ],
       ),
       drawer: MainDrawer(onPageChanged: onPageChanged),
-      body: const SubscriptionPage(),
+      body: SafeArea(
+        top: false,
+        child: SubscriptionPage(onGoToSettings: () => onPageChanged(2)),
+      ),
     );
   }
 }
@@ -151,7 +161,10 @@ class _SettingsPageWrapper extends StatelessWidget {
         elevation: 8,
       ),
       drawer: MainDrawer(onPageChanged: onPageChanged),
-      body: const SettingsPage(),
+      body: const SafeArea(
+        top: false,
+        child: SettingsPage(),
+      ),
     );
   }
 }

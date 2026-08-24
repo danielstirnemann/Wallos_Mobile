@@ -29,6 +29,7 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
   int? _selectedCurrency;
   int? _selectedCategory;
   int? _selectedPaymentMethod;
+  int? _selectedPayer;
   late int _selectedCycle;
   late int _selectedFrequency;
 
@@ -58,6 +59,7 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
     _selectedCurrency = existing?.currencyId;
     _selectedCategory = existing?.categoryId;
     _selectedPaymentMethod = existing?.paymentMethodId;
+    _selectedPayer = existing?.payerUserId;
 
     _nameController = TextEditingController(text: existing?.name ?? '');
     _priceController = TextEditingController(text: existing?.price.toString() ?? '');
@@ -122,9 +124,14 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
       return;
     }
 
-    if (_selectedCurrency == null || _selectedCategory == null) {
+    // Kategorie ist bewusst NICHT (mehr) zwingend erforderlich - die App
+    // soll auch ohne Wallos-Verbindung (und damit ohne konfigurierbare
+    // Kategorien) vollständig eigenständig nutzbar sein. Währung bleibt
+    // erforderlich, ist aber dank der eingebauten Standard-Währungsliste
+    // (siehe defaultLocalCurrencies) auch offline immer verfügbar.
+    if (_selectedCurrency == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bitte Währung und Kategorie wählen')),
+        const SnackBar(content: Text('Bitte Währung wählen')),
       );
       return;
     }
@@ -136,10 +143,12 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
       'currency_id': _selectedCurrency,
       'category_id': _selectedCategory,
       'payment_method_id': _selectedPaymentMethod,
+      'payer_user_id': _selectedPayer,
       'cycle': _selectedCycle,
       'frequency': _selectedFrequency,
       'next_payment': _nextPaymentController.text,
       'logo_url': _selectedLogoItem?.url,
+      'logo_hex': _selectedLogoItem?.hex,
     });
   }
 
@@ -148,15 +157,43 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
     final metaAsync = ref.watch(metaDataProvider);
     final isAdding = widget.subscription == null;
     // Nur beim Hinzufügen eines neuen Abos relevant - die in den
-    // Einstellungen konfigurierten Standardwerte.
-    final configuredDefaults = isAdding
-        ? ref.watch(defaultSubscriptionSettingsProvider).value
-        : null;
+    // Einstellungen konfigurierten Standardwerte. Wir beobachten hier den
+    // vollen AsyncValue (nicht nur `.value`), damit wir erkennen können, ob
+    // die Standardwerte NOCH laden - siehe Kommentar weiter unten, warum das
+    // wichtig ist.
+    final defaultsAsync = isAdding ? ref.watch(defaultSubscriptionSettingsProvider) : null;
+    // WICHTIG: Solange die konfigurierten Standardwerte noch laden (erster
+    // Aufruf von SharedPreferences ist async), darf die "Fallback auf
+    // erster Eintrag"-Logik unten NICHT bereits greifen - sonst wird
+    // _selectedCurrency/_selectedCategory/... bereits auf den ersten
+    // verfügbaren Eintrag gesetzt, BEVOR die eigentlich konfigurierten
+    // Standardwerte ankommen. Da die Felder danach nicht mehr `null` sind,
+    // würden die konfigurierten Standardwerte nie mehr angewendet werden.
+    final waitingForDefaults = isAdding && (defaultsAsync?.isLoading ?? false);
+    final configuredDefaults = defaultsAsync?.value;
 
     return AlertDialog(
       title: Text(isAdding ? 'Abo hinzufügen' : 'Abo bearbeiten'),
-      content: metaAsync.when(
+      content: waitingForDefaults
+          ? const SizedBox(
+              height: 200,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          : metaAsync.when(
         data: (meta) {
+          // Falls die aktuell ausgewählte Währung/Kategorie in der JETZT
+          // verfügbaren Liste nicht mehr existiert (z.B. eine lokale
+          // Standardauswahl von VOR dem Verbinden mit Wallos, oder eine
+          // Wallos-Kategorie, die zwischenzeitlich gelöscht wurde), muss die
+          // Auswahl zurücksetzt werden - sonst würde das DropdownButtonFormField
+          // versuchen, einen nicht vorhandenen Wert darzustellen.
+          if (_selectedCurrency != null && !meta.currencies.any((c) => c.id == _selectedCurrency)) {
+            _selectedCurrency = null;
+          }
+          if (_selectedCategory != null && !meta.categories.any((c) => c.id == _selectedCategory)) {
+            _selectedCategory = null;
+          }
+
           // Setze Standardwerte, falls noch nichts ausgewählt ist. Beim
           // Hinzufügen wird bevorzugt der in den Einstellungen konfigurierte
           // Standard verwendet (sofern er noch existiert), sonst der erste
@@ -183,6 +220,14 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
               _selectedPaymentMethod = preferred;
             } else if (meta.paymentMethods.isNotEmpty) {
               _selectedPaymentMethod = meta.paymentMethods.first.id;
+            }
+          }
+          if (_selectedPayer == null) {
+            final preferred = configuredDefaults?.payerUserId;
+            if (preferred != null && meta.householdMembers.any((m) => m.id == preferred)) {
+              _selectedPayer = preferred;
+            } else if (meta.householdMembers.isNotEmpty) {
+              _selectedPayer = meta.householdMembers.first.id;
             }
           }
           if (isAdding && !_appliedConfiguredCycleDefault && configuredDefaults != null) {
@@ -272,45 +317,78 @@ class _SubscriptionFormDialogState extends ConsumerState<SubscriptionFormDialog>
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(
                   value: _selectedCurrency,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Währung',
                     border: OutlineInputBorder(),
                   ),
                   items: meta.currencies.map((c) => DropdownMenuItem(
                     value: c.id,
-                    child: Text('${c.name} (${c.symbol})'),
+                    child: Text(
+                      '${c.name} (${c.symbol})',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   )).toList(),
                   onChanged: (value) => setState(() => _selectedCurrency = value),
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(
                   value: _selectedCategory,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Kategorie',
                     border: OutlineInputBorder(),
                   ),
                   items: meta.categories.map((c) => DropdownMenuItem(
                     value: c.id,
-                    child: Text(c.name),
+                    child: Text(c.name, overflow: TextOverflow.ellipsis),
                   )).toList(),
                   onChanged: (value) => setState(() => _selectedCategory = value),
                 ),
                 const SizedBox(height: 16),
-                DropdownButtonFormField<int>(
-                  value: _selectedPaymentMethod,
-                  decoration: const InputDecoration(
-                    labelText: 'Zahlungsmethode',
-                    border: OutlineInputBorder(),
+                // Ohne Wallos-Verbindung (bzw. solange der Server nicht
+                // erreichbar ist) gibt es keine Zahlungsmethoden - anders als
+                // Währung/Kategorie hat dieses Feld bewusst KEINE eingebaute
+                // lokale Fallback-Liste (Zahlungsmethoden sind sehr
+                // Wallos-Account-spezifisch). Daher wird das Dropdown analog
+                // zu "Zahler" nur angezeigt, wenn tatsächlich welche verfügbar
+                // sind - ein leeres, nicht nutzbares Dropdown wäre verwirrend.
+                if (meta.paymentMethods.isNotEmpty) ...[
+                  DropdownButtonFormField<int>(
+                    value: _selectedPaymentMethod,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Zahlungsmethode',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: meta.paymentMethods.map((pm) => DropdownMenuItem(
+                      value: pm.id,
+                      child: Text(pm.name, overflow: TextOverflow.ellipsis),
+                    )).toList(),
+                    onChanged: (value) => setState(() => _selectedPaymentMethod = value),
                   ),
-                  items: meta.paymentMethods.map((pm) => DropdownMenuItem(
-                    value: pm.id,
-                    child: Text(pm.name),
-                  )).toList(),
-                  onChanged: (value) => setState(() => _selectedPaymentMethod = value),
-                ),
+                  const SizedBox(height: 16),
+                ],
+                if (meta.householdMembers.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<int>(
+                    value: _selectedPayer,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Zahler',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: meta.householdMembers.map((m) => DropdownMenuItem(
+                      value: m.id,
+                      child: Text(m.name, overflow: TextOverflow.ellipsis),
+                    )).toList(),
+                    onChanged: (value) => setState(() => _selectedPayer = value),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(
                   value: _selectedCycle,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Zyklus',
                     border: OutlineInputBorder(),

@@ -45,6 +45,9 @@ dependencies:
   # SVG Support
   flutter_svg: ^2.0.10+1
 
+  # Datei-Auswähler für Backup-Export/-Import
+  file_picker: ^12.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -24,7 +24,7 @@ class AppDatabase {
 
     final db = await openDatabase(
       path,
-      version: 5,
+      version: 8,
       onCreate: _createTables,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 4) {
@@ -39,6 +39,33 @@ class AppDatabase {
           // übertragen werden kann (Offline-First für Löschen).
           await db.execute(
             'ALTER TABLE subscriptions ADD COLUMN pending_delete INTEGER DEFAULT 0',
+          );
+        }
+        if (oldVersion < 6) {
+          // Neue Spalte für den Zahler ("payer_user_id"). Ohne diesen Wert
+          // speichert Wallos beim Sync NULL, was in stats_calculations.php
+          // zu "Undefined array key"-Warnungen führt.
+          await db.execute(
+            'ALTER TABLE subscriptions ADD COLUMN payer_user_id INTEGER',
+          );
+        }
+        if (oldVersion < 7) {
+          // Key-Value-Tabelle für App-Einstellungen (Wallos-Zugangsdaten,
+          // Standardwerte für neue Abos). Liegen bewusst in derselben
+          // SQLite-Datenbank wie die Abos, damit ALLE lokalen App-Daten
+          // Teil EINES gemeinsamen Backups sein können (siehe BackupService).
+          await db.execute(
+            'CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)',
+          );
+        }
+        if (oldVersion < 8) {
+          // Speichert die Marken-Hex-Farbe (z.B. "#E50914") des beim
+          // Hinzufügen/Bearbeiten gewählten Simple-Icons-Logos. Ohne diese
+          // Information konnte weder die Vorschau in der Liste noch das zu
+          // Wallos hochgeladene PNG farbig dargestellt werden - beides fiel
+          // auf Schwarz/Grau zurück (siehe LogoUploadHelper).
+          await db.execute(
+            'ALTER TABLE subscriptions ADD COLUMN logo_hex TEXT',
           );
         }
       },
@@ -84,13 +111,94 @@ class AppDatabase {
         currency_id INTEGER,
         category_id INTEGER,
         payment_method_id INTEGER,
+        payer_user_id INTEGER,
         inactive INTEGER DEFAULT 0,
         next_payment TEXT,
         logo_url TEXT,
+        logo_hex TEXT,
         synced INTEGER DEFAULT 1,
         pending_delete INTEGER DEFAULT 0
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
+  }
+
+  // ---- App Settings (Key-Value Store) ----
+  //
+  // Wird u.a. für Wallos-Zugangsdaten und Standardwerte für neue Abos
+  // verwendet. Liegt bewusst in der SQLite-Datenbank (statt in
+  // SharedPreferences), damit ALLE lokalen App-Daten Teil eines einzigen
+  // Backups sein können (siehe BackupService).
+
+  /// Lädt einen einzelnen Einstellungswert, oder `null` falls nicht gesetzt.
+  Future<String?> getSetting(String key) async {
+    final db = await database;
+    final rows = await db.query('app_settings', where: 'key = ?', whereArgs: [key], limit: 1);
+    if (rows.isEmpty) return null;
+    return rows.first['value'] as String?;
+  }
+
+  /// Speichert einen Einstellungswert. Übergibt man `null`, wird der
+  /// Schlüssel entfernt (analog zu "keine Vorauswahl").
+  Future<void> setSetting(String key, String? value) async {
+    final db = await database;
+    if (value == null) {
+      await db.delete('app_settings', where: 'key = ?', whereArgs: [key]);
+      return;
+    }
+    await db.insert(
+      'app_settings',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Lädt ALLE gespeicherten Einstellungen (für das Backup).
+  Future<Map<String, String>> getAllSettings() async {
+    final db = await database;
+    final rows = await db.query('app_settings');
+    return {for (final r in rows) r['key'] as String: (r['value'] as String?) ?? ''};
+  }
+
+  /// Ersetzt ALLE Einstellungen durch die übergebene Map (für die
+  /// Backup-Wiederherstellung). Löscht zuvor alle bestehenden Werte.
+  Future<void> replaceAllSettings(Map<String, String> settings) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('app_settings');
+      for (final entry in settings.entries) {
+        await txn.insert('app_settings', {'key': entry.key, 'value': entry.value});
+      }
+    });
+  }
+
+  // ---- Rohdaten-Zugriff für Backup/Restore ----
+
+  /// Gibt ALLE Abo-Zeilen unverändert (inkl. sync/pending_delete-Status) als
+  /// Rohdaten zurück - für das Backup.
+  Future<List<Map<String, dynamic>>> getAllSubscriptionsRaw() async {
+    final db = await database;
+    return db.query('subscriptions');
+  }
+
+  /// Ersetzt ALLE lokal gespeicherten Abos durch die übergebenen Rohdaten
+  /// (für die Backup-Wiederherstellung). Löscht zuvor alle bestehenden
+  /// Einträge, damit der wiederhergestellte Zustand exakt dem Backup
+  /// entspricht.
+  Future<void> replaceAllSubscriptions(List<Map<String, dynamic>> rows) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('subscriptions');
+      for (final row in rows) {
+        await txn.insert('subscriptions', row, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
   }
 
   /// Speichert ein Abo (Lokal-First)
@@ -107,9 +215,11 @@ class AppDatabase {
       'currency_id': subscription.currencyId,
       'category_id': subscription.categoryId,
       'payment_method_id': subscription.paymentMethodId,
+      'payer_user_id': subscription.payerUserId,
       'inactive': subscription.inactive,
       'next_payment': subscription.nextPayment,
       'logo_url': subscription.logoUrl,
+      'logo_hex': subscription.logoHex,
       'synced': synced ? 1 : 0,
     };
 
@@ -171,6 +281,7 @@ class AppDatabase {
         'currency_id': sub.currencyId,
         'category_id': sub.categoryId,
         'payment_method_id': sub.paymentMethodId,
+        'payer_user_id': sub.payerUserId,
         'inactive': sub.inactive,
         'next_payment': sub.nextPayment,
         'logo_url': sub.logoUrl,
@@ -230,9 +341,11 @@ class AppDatabase {
       'currency_id': subscription.currencyId,
       'category_id': subscription.categoryId,
       'payment_method_id': subscription.paymentMethodId,
+      'payer_user_id': subscription.payerUserId,
       'inactive': subscription.inactive,
       'next_payment': subscription.nextPayment,
       'logo_url': subscription.logoUrl,
+      'logo_hex': subscription.logoHex,
     };
 
     return await db.update(
@@ -322,8 +435,55 @@ class AppDatabase {
   /// vergebenen remote_id. Ohne diese Verknüpfung würde das Abo beim
   /// nächsten Laden von der API als komplett neuer Eintrag erkannt und
   /// dupliziert werden, da "remote_id" sonst NULL bliebe.
+  ///
+  /// WICHTIG: "remote_id" hat eine UNIQUE-Constraint. Da Wallos die
+  /// zugrunde liegende SQLite-"id" beim Anlegen neuer Subscriptions
+  /// wiederverwenden kann (z.B. nachdem eine ältere Subscription mit
+  /// derselben ID gelöscht wurde), kann es vorkommen, dass ein ANDERER,
+  /// bereits vorhandener lokaler Eintrag noch dieselbe remote_id trägt -
+  /// dieser bezieht sich dann auf eine längst gelöschte/andere Wallos-
+  /// Subscription und ist verwaist. Ohne Sonderbehandlung würde das
+  /// nachfolgende UPDATE mit einem UNIQUE-Constraint-Fehler abbrechen.
   Future<void> markAsSyncedWithRemoteId(int id, int remoteId) async {
     final db = await database;
+
+    final conflicting = await db.query(
+      'subscriptions',
+      where: 'remote_id = ? AND id != ?',
+      whereArgs: [remoteId, id],
+    );
+
+    if (conflicting.isNotEmpty) {
+      final other = conflicting.first;
+      final otherHasPendingChanges = (other['synced'] as int? ?? 1) == 0 ||
+          (other['pending_delete'] as int? ?? 0) == 1;
+
+      if (!otherHasPendingChanges) {
+        // Der andere Eintrag ist bereits synchronisiert und hat keine
+        // ausstehenden Änderungen - er ist verwaist (die Wallos-ID wurde
+        // zwischenzeitlich neu vergeben). Sicher zu entfernen, damit der
+        // aktuelle Eintrag die remote_id übernehmen kann.
+        // ignore: avoid_print
+        print('[DB] Entferne verwaisten lokalen Eintrag (id=${other['id']}) - remote_id=$remoteId wurde von Wallos neu vergeben.');
+        await db.delete('subscriptions', where: 'id = ?', whereArgs: [other['id']]);
+      } else {
+        // Der andere Eintrag hat noch nicht synchronisierte Änderungen -
+        // NICHT löschen (wäre Datenverlust). Stattdessen den AKTUELLEN
+        // Eintrag ohne remote_id-Verknüpfung als synced markieren; er wird
+        // beim nächsten App-Start automatisch als verwaistes Duplikat
+        // bereinigt (siehe _removeOrphanedDuplicates).
+        // ignore: avoid_print
+        print('[DB] Konflikt bei remote_id=$remoteId: anderer lokaler Eintrag (id=${other['id']}) hat ausstehende Änderungen. Markiere id=$id ohne remote_id-Verknüpfung.');
+        await db.update(
+          'subscriptions',
+          {'synced': 1},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        return;
+      }
+    }
+
     await db.update(
       'subscriptions',
       {'synced': 1, 'remote_id': remoteId},
@@ -344,9 +504,11 @@ class AppDatabase {
       currencyId: map['currency_id'],
       categoryId: map['category_id'],
       paymentMethodId: map['payment_method_id'],
+      payerUserId: map['payer_user_id'],
       inactive: map['inactive'] ?? 0,
       nextPayment: map['next_payment'] ?? '',
       logoUrl: map['logo_url'],
+      logoHex: map['logo_hex'],
       synced: map['synced'] ?? 1,
       pendingDelete: map['pending_delete'] ?? 0,
     );
@@ -364,9 +526,11 @@ class SubscriptionEntity {
   final int? currencyId;
   final int? categoryId;
   final int? paymentMethodId;
+  final int? payerUserId;
   final int inactive;
   final String nextPayment;
   final String? logoUrl;
+  final String? logoHex;
   final int synced;
   final int pendingDelete;
 
@@ -380,9 +544,11 @@ class SubscriptionEntity {
     this.currencyId,
     this.categoryId,
     this.paymentMethodId,
+    this.payerUserId,
     required this.inactive,
     required this.nextPayment,
     this.logoUrl,
+    this.logoHex,
     required this.synced,
     this.pendingDelete = 0,
   });

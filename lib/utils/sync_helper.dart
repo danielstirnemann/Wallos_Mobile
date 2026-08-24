@@ -13,7 +13,14 @@ import '../providers/sync_provider.dart';
 ///    "ausstehend" markiert und wird beim nächsten Sync erneut versucht.
 class SyncHelper {
   /// Aktualisiert die UI-Provider aus der lokalen DB und stößt danach einen
-  /// Sync-Versuch zur Wallos-API an. Zeigt das Ergebnis als SnackBar an.
+  /// Sync-Versuch zur Wallos-API an.
+  ///
+  /// HINWEIS: Das Ergebnis dieses automatischen Hintergrund-Syncs wird
+  /// bewusst NICHT als SnackBar angezeigt (das wäre nach JEDEM
+  /// Hinzufügen/Bearbeiten/Löschen störend). Fehlgeschlagene Abos landen
+  /// stattdessen ganz normal in der "ausstehend"-Zählung (Sync-Badge oben
+  /// rechts) - von dort aus löst der manuelle Sync-Button weiterhin eine
+  /// eigene Meldung inkl. Fehler-Dialog aus.
   static Future<void> refreshAndSync(BuildContext context, WidgetRef ref) async {
     // Sofortiges UI-Feedback aus der lokalen DB (Offline-First).
     //
@@ -28,30 +35,14 @@ class SyncHelper {
     ref.invalidate(pendingChangesCountProvider);
 
     try {
-      final result = await ref.refresh(syncProvider.future);
+      await ref.refresh(syncProvider.future);
 
       // Nach dem Sync-Versuch erneut aktualisieren (z.B. neue remote_id).
       ref.invalidate(subscriptionProvider);
       ref.invalidate(pendingChangesCountProvider);
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.message),
-            backgroundColor: result.success ? Colors.green.shade700 : Colors.red,
-          ),
-        );
-      }
     } catch (e) {
       // ignore: avoid_print
       print('[SyncHelper] Fehler beim automatischen Sync: $e');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync fehlgeschlagen: $e'), backgroundColor: Colors.red),
-        );
-      }
     }
   }
 }
