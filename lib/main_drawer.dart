@@ -22,9 +22,20 @@ class MainDrawer extends StatelessWidget {
                 ],
               ),
             ),
-            child: Text(
-              'Wallos',
-              style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              // FittedBox skaliert den Titel automatisch etwas kleiner, falls
+              // er auf schmalen Bildschirmen sonst nicht in den Drawer-Header
+              // passen würde ("Dartisan SubTracker" ist deutlich länger als
+              // das vorherige "Wallos").
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.bottomLeft,
+                child: Text(
+                  'Dartisan SubTracker',
+                  style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+              ),
             ),
           ),
           // Home - zuoberst

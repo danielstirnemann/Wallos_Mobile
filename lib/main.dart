@@ -72,7 +72,7 @@ class _HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: GradientAppBar(
-        title: 'Wallos',
+        title: 'Dashboard',
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,

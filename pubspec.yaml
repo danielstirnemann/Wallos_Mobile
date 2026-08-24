@@ -58,7 +58,19 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  
+  flutter_launcher_icons: ^0.14.4
+
+# Konfiguration für `dart run flutter_launcher_icons` - generiert alle
+# Android-Launcher-Icon-Auflösungen (mipmap-*) aus der einen Quelldatei.
+# Das Quellbild ist bereits ein vollständiges, randloses quadratisches
+# Icon-Design (dunkler Hintergrund + Logo) - bewusst OHNE separate
+# Adaptive-Icon-Vordergrund/Hintergrund-Ebenen, da das Icon sonst vom
+# Adaptive-Icon-"Safe Zone"-Zuschnitt der Launcher doppelt/asymmetrisch
+# beschnitten würde.
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
 
 
 # For information on the generic Dart part of this file, see the
